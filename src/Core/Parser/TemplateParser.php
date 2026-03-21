@@ -9,6 +9,9 @@ namespace TYPO3Fluid\Fluid\Core\Parser;
 
 use TYPO3Fluid\Fluid\Core\Compiler\StopCompilingException;
 use TYPO3Fluid\Fluid\Core\Compiler\UncompilableTemplateInterface;
+use TYPO3Fluid\Fluid\Core\Parser\Lexer\TemplateLexer;
+use TYPO3Fluid\Fluid\Core\Parser\Lexer\TemplateLexerInterface;
+use TYPO3Fluid\Fluid\Core\Parser\Lexer\TemplateToken;
 use TYPO3Fluid\Fluid\Core\Parser\SyntaxTree\ArrayNode;
 use TYPO3Fluid\Fluid\Core\Parser\SyntaxTree\BooleanNode;
 use TYPO3Fluid\Fluid\Core\Parser\SyntaxTree\Expression\ExpressionException;
@@ -54,6 +57,8 @@ class TemplateParser
     protected ?Configuration $configuration = null;
 
     protected RenderingContextInterface $renderingContext;
+
+    protected ?TemplateLexerInterface $templateLexer = null;
 
     protected int $pointerLineNumber = 1;
 
@@ -110,7 +115,7 @@ class TemplateParser
 
             $templateString = $this->preProcessTemplateSource($templateString);
 
-            $splitTemplate = $this->splitTemplateAtDynamicTags($templateString);
+            $splitTemplate = $this->tokenizeTemplate($templateString);
             $parsingState = $this->buildObjectTree(
                 $this->createParsingState($templateIdentifier, $originalTemplatePath),
                 $splitTemplate,
@@ -207,13 +212,29 @@ class TemplateParser
      */
     protected function splitTemplateAtDynamicTags(string $templateString): array
     {
-        return preg_split(Patterns::$SPLIT_PATTERN_TEMPLATE_DYNAMICTAGS, $templateString, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY);
+        return array_map(
+            static fn(TemplateToken $token): string => $token->source,
+            $this->tokenizeTemplate($templateString),
+        );
+    }
+
+    /**
+     * @return list<TemplateToken>
+     */
+    protected function tokenizeTemplate(string $templateString): array
+    {
+        return $this->getTemplateLexer()->tokenize($templateString);
+    }
+
+    protected function getTemplateLexer(): TemplateLexerInterface
+    {
+        return $this->templateLexer ??= new TemplateLexer();
     }
 
     /**
      * Build object tree from the split template
      *
-     * @param array $splitTemplate The split template, so that every tag with a namespace declaration is already a seperate array element.
+     * @param list<TemplateToken> $splitTemplate The split template, so that every tag with a namespace declaration is already a seperate array element.
      * @param int $context one of the CONTEXT_* constants, defining whether we are inside or outside of ViewHelper arguments currently.
      * @throws Exception
      */
@@ -221,7 +242,8 @@ class TemplateParser
     {
         $previousBlock = '';
 
-        foreach ($splitTemplate as $templateElement) {
+        foreach ($splitTemplate as $templateToken) {
+            $templateElement = $templateToken->source;
             if ($context === self::CONTEXT_OUTSIDE_VIEWHELPER_ARGUMENTS) {
                 // Store a neat reference to the outermost chunk of Fluid template code.
                 // Don't store the reference if parsing ViewHelper arguments object tree;
@@ -231,16 +253,14 @@ class TemplateParser
             $this->pointerLineNumber += substr_count($templateElement, PHP_EOL);
             $this->pointerLineCharacter = strlen(substr($previousBlock, strrpos($previousBlock, PHP_EOL))) + 1;
             $previousBlock = $templateElement;
-            $matchedVariables = [];
-
-            if (preg_match(Patterns::$SCAN_PATTERN_TEMPLATE_VIEWHELPERTAG, $templateElement, $matchedVariables) > 0) {
+            if ($templateToken->type === TemplateToken::TYPE_OPEN_VIEWHELPER_TAG) {
                 try {
                     if ($this->openingViewHelperTagHandler(
                         $state,
-                        $matchedVariables['NamespaceIdentifier'],
-                        $matchedVariables['MethodIdentifier'],
-                        $matchedVariables['Attributes'],
-                        ($matchedVariables['Selfclosing'] === '' ? false : true),
+                        $templateToken->namespaceIdentifier ?? '',
+                        $templateToken->methodIdentifier ?? '',
+                        $templateToken->attributes ?? '',
+                        $templateToken->selfClosing,
                         $templateElement,
                     )) {
                         continue;
@@ -256,18 +276,18 @@ class TemplateParser
                         $this->renderingContext->getErrorHandler()->handleParserError($error),
                     );
                 }
-            } elseif (preg_match(Patterns::$SCAN_PATTERN_TEMPLATE_CLOSINGVIEWHELPERTAG, $templateElement, $matchedVariables) > 0) {
+            } elseif ($templateToken->type === TemplateToken::TYPE_CLOSE_VIEWHELPER_TAG) {
                 // @todo if exceptions happen here, they should be handled by the error handler as well.
                 //       Currently, this isn't possible because the parsing state is inconsistent afterwards
                 if ($this->closingViewHelperTagHandler(
                     $state,
-                    $matchedVariables['NamespaceIdentifier'],
-                    $matchedVariables['MethodIdentifier'],
+                    $templateToken->namespaceIdentifier ?? '',
+                    $templateToken->methodIdentifier ?? '',
                 )) {
                     continue;
                 }
-            } elseif (preg_match(Patterns::$SCAN_PATTERN_CDATA, $templateElement, $matchedVariables) > 0) {
-                $this->textAndShorthandSyntaxHandler($state, $matchedVariables['CDataContent'], self::CONTEXT_INSIDE_CDATA);
+            } elseif ($templateToken->type === TemplateToken::TYPE_CDATA) {
+                $this->textAndShorthandSyntaxHandler($state, $templateToken->content ?? '', self::CONTEXT_INSIDE_CDATA);
                 continue;
             }
             $this->textAndShorthandSyntaxHandler($state, $templateElement, $context);
@@ -586,7 +606,7 @@ class TemplateParser
             }
             return new TextNode($argumentString);
         }
-        $splitArgument = $this->splitTemplateAtDynamicTags($argumentString);
+        $splitArgument = $this->tokenizeTemplate($argumentString);
         // At this stage, Fluid creates a sub template with its own ParsingState
         // and RootNode. While this currently works in practice, conceptually
         // this is problematic: There is no way to influence the resulting
