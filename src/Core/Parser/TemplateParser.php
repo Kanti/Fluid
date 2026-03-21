@@ -295,6 +295,9 @@ class TemplateParser
             } elseif ($templateToken->type === TemplateToken::TYPE_OBJECT_ACCESSOR) {
                 $this->processObjectAccessorToken($state, $templateToken);
                 continue;
+            } elseif ($templateToken->type === TemplateToken::TYPE_EXPRESSION) {
+                $this->processExpressionToken($state, $templateToken);
+                continue;
             } elseif ($templateToken->type === TemplateToken::TYPE_ARRAY) {
                 $this->arrayHandler($state, $this->recursiveArrayHandler($state, $templateToken->arrayParts));
                 continue;
@@ -691,6 +694,10 @@ class TemplateParser
                 $this->processObjectAccessorToken($state, $section);
                 continue;
             }
+            if ($section->type === TemplateToken::TYPE_EXPRESSION) {
+                $this->processExpressionToken($state, $section);
+                continue;
+            }
             if ($section->type === TemplateToken::TYPE_ARRAY) {
                 $this->arrayHandler($state, $this->recursiveArrayHandler($state, $section->arrayParts));
                 continue;
@@ -701,40 +708,30 @@ class TemplateParser
 
     protected function processShorthandToken(ParsingState $state, string $source, string $normalizedSection, int $context): void
     {
-        $expressionNode = null;
-        foreach ($this->renderingContext->getExpressionNodeTypes() as $expressionNodeTypeClassName) {
-            $detectionExpression = $expressionNodeTypeClassName::$detectionExpression;
-            $matchedVariables = [];
-            preg_match_all($detectionExpression, $normalizedSection, $matchedVariables, PREG_SET_ORDER);
-            foreach ($matchedVariables as $matchedVariableSet) {
-                $expressionStartPosition = strpos($normalizedSection, $matchedVariableSet[0]);
-                /** @var ExpressionNodeInterface $expressionNode */
-                $expressionNode = new $expressionNodeTypeClassName($matchedVariableSet[0], $matchedVariableSet, $state);
-                try {
-                    if ($expressionStartPosition > 0) {
-                        $state->getNodeFromStack()->addChildNode(new TextNode(substr($normalizedSection, 0, $expressionStartPosition)));
-                    }
+        $this->textHandler($state, $source);
+    }
 
-                    $this->callInterceptor($expressionNode, InterceptorInterface::INTERCEPT_EXPRESSION, $state);
-                    $state->getNodeFromStack()->addChildNode($expressionNode);
-
-                    $expressionEndPosition = $expressionStartPosition + strlen($matchedVariableSet[0]);
-                    if ($expressionEndPosition < strlen($normalizedSection)) {
-                        $remainingSection = substr($normalizedSection, $expressionEndPosition);
-                        $this->textAndShorthandSyntaxHandler($state, $remainingSection, $context);
-                        break;
-                    }
-                } catch (ExpressionException $error) {
-                    $this->textHandler(
-                        $state,
-                        $this->renderingContext->getErrorHandler()->handleExpressionError($error),
-                    );
-                }
-            }
+    protected function processExpressionToken(ParsingState $state, TemplateToken $templateToken): void
+    {
+        $expressionNodeTypeClassName = $templateToken->expressionNodeType;
+        if ($expressionNodeTypeClassName === null) {
+            $this->textHandler($state, $templateToken->source);
+            return;
         }
 
-        if (!$expressionNode) {
-            $this->textHandler($state, $source);
+        try {
+            /** @var ExpressionNodeInterface $expressionNode */
+            $expressionNode = new $expressionNodeTypeClassName(
+                $templateToken->normalizedSource ?? $templateToken->source,
+                $templateToken->expressionMatches,
+            );
+            $this->callInterceptor($expressionNode, InterceptorInterface::INTERCEPT_EXPRESSION, $state);
+            $state->getNodeFromStack()->addChildNode($expressionNode);
+        } catch (ExpressionException $error) {
+            $this->textHandler(
+                $state,
+                $this->renderingContext->getErrorHandler()->handleExpressionError($error),
+            );
         }
     }
 

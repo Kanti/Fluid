@@ -18,6 +18,7 @@ final readonly class TemplateToken
     public const TYPE_SHORTHAND = 'shorthand';
     public const TYPE_ARRAY = 'array';
     public const TYPE_OBJECT_ACCESSOR = 'object_accessor';
+    public const TYPE_EXPRESSION = 'expression';
 
     public function __construct(
         public string $type,
@@ -42,6 +43,8 @@ final readonly class TemplateToken
          * @var list<ShorthandInlineViewHelper>
          */
         public array $inlineViewHelpers = [],
+        public ?string $expressionNodeType = null,
+        public array $expressionMatches = [],
     ) {}
 
     public static function text(string $source, bool $insideCdata = false): self
@@ -118,6 +121,23 @@ final readonly class TemplateToken
             insideCdata: $insideCdata,
             objectAccessor: $objectAccessor,
             inlineViewHelpers: $inlineViewHelpers,
+        );
+    }
+
+    public static function expression(
+        string $source,
+        string $normalizedSource,
+        string $expressionNodeType,
+        array $expressionMatches,
+        bool $insideCdata = false,
+    ): self {
+        return new self(
+            self::TYPE_EXPRESSION,
+            $source,
+            normalizedSource: $normalizedSource,
+            insideCdata: $insideCdata,
+            expressionNodeType: $expressionNodeType,
+            expressionMatches: $expressionMatches,
         );
     }
 }

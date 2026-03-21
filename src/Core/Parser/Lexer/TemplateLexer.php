@@ -9,9 +9,24 @@ declare(strict_types=1);
 
 namespace TYPO3Fluid\Fluid\Core\Parser\Lexer;
 
+use TYPO3Fluid\Fluid\Core\Parser\SyntaxTree\Expression\CastingExpressionNode;
+use TYPO3Fluid\Fluid\Core\Parser\SyntaxTree\Expression\MathExpressionNode;
+use TYPO3Fluid\Fluid\Core\Parser\SyntaxTree\Expression\TernaryExpressionNode;
+
 final class TemplateLexer implements TemplateLexerInterface
 {
     private const SHORTHAND_IDENTIFIER_CHARACTERS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-';
+
+    /**
+     * @param list<class-string> $expressionNodeTypes
+     */
+    public function __construct(
+        private readonly array $expressionNodeTypes = [
+            CastingExpressionNode::class,
+            MathExpressionNode::class,
+            TernaryExpressionNode::class,
+        ],
+    ) {}
 
     public function tokenize(string $templateSource): array
     {
@@ -268,6 +283,10 @@ final class TemplateLexer implements TemplateLexerInterface
                     if ($objectAccessorToken instanceof TemplateToken) {
                         return $objectAccessorToken;
                     }
+                    $expressionToken = $this->createExpressionTokenFromShorthand($source, $source);
+                    if ($expressionToken instanceof TemplateToken) {
+                        return $expressionToken;
+                    }
                     if (strlen($source) <= 2) {
                         return null;
                     }
@@ -308,6 +327,10 @@ final class TemplateLexer implements TemplateLexerInterface
                     $objectAccessorToken = $this->createObjectAccessorTokenFromShorthand($source, $normalizedSource, true);
                     if ($objectAccessorToken instanceof TemplateToken) {
                         return $objectAccessorToken;
+                    }
+                    $expressionToken = $this->createExpressionTokenFromShorthand($source, $normalizedSource, true);
+                    if ($expressionToken instanceof TemplateToken) {
+                        return $expressionToken;
                     }
                     if (strlen($source) <= 6) {
                         return null;
@@ -361,6 +384,28 @@ final class TemplateLexer implements TemplateLexerInterface
             $parsed['inlineViewHelpers'],
             $insideCdata,
         );
+    }
+
+    private function createExpressionTokenFromShorthand(string $source, string $normalizedSource, bool $insideCdata = false): ?TemplateToken
+    {
+        foreach ($this->expressionNodeTypes as $expressionNodeType) {
+            $matches = [];
+            preg_match_all($expressionNodeType::$detectionExpression, $normalizedSource, $matches, PREG_SET_ORDER);
+            foreach ($matches as $matchedVariableSet) {
+                if (($matchedVariableSet[0] ?? null) !== $normalizedSource) {
+                    continue;
+                }
+                return TemplateToken::expression(
+                    $source,
+                    $normalizedSource,
+                    $expressionNodeType,
+                    $matchedVariableSet,
+                    $insideCdata,
+                );
+            }
+        }
+
+        return null;
     }
 
     /**

@@ -151,6 +151,48 @@ final class TemplateLexerTest extends TestCase
         ];
     }
 
+    public static function expressionTokenCases(): array
+    {
+        return [
+            'casting expression' => [
+                '{some.variable as integer}',
+                TemplateToken::expression(
+                    '{some.variable as integer}',
+                    '{some.variable as integer}',
+                    \TYPO3Fluid\Fluid\Core\Parser\SyntaxTree\Expression\CastingExpressionNode::class,
+                    [
+                        0 => '{some.variable as integer}',
+                        1 => '{some.variable as integer}',
+                    ],
+                ),
+            ],
+            'math expression' => [
+                '{variable * 10}',
+                TemplateToken::expression(
+                    '{variable * 10}',
+                    '{variable * 10}',
+                    \TYPO3Fluid\Fluid\Core\Parser\SyntaxTree\Expression\MathExpressionNode::class,
+                    [
+                        0 => '{variable * 10}',
+                        1 => '{variable * 10}',
+                    ],
+                ),
+            ],
+            'ternary expression' => [
+                '{check ? then : else}',
+                TemplateToken::expression(
+                    '{check ? then : else}',
+                    '{check ? then : else}',
+                    \TYPO3Fluid\Fluid\Core\Parser\SyntaxTree\Expression\TernaryExpressionNode::class,
+                    [
+                        0 => '{check ? then : else}',
+                        1 => '{check ? then : else}',
+                    ],
+                ),
+            ],
+        ];
+    }
+
     public static function shorthandArrayTokenCases(): array
     {
         return [
@@ -298,6 +340,18 @@ final class TemplateLexerTest extends TestCase
     #[DataProvider('objectAccessorTokenCases')]
     #[Test]
     public function tokenizingObjectAccessorsReturnsStructuredTokens(string $input, TemplateToken $expected): void
+    {
+        $subject = new TemplateLexer();
+
+        $tokens = $subject->tokenize($input);
+
+        self::assertCount(1, $tokens);
+        self::assertEquals($expected, $tokens[0]);
+    }
+
+    #[DataProvider('expressionTokenCases')]
+    #[Test]
+    public function tokenizingExpressionsReturnsStructuredTokens(string $input, TemplateToken $expected): void
     {
         $subject = new TemplateLexer();
 
