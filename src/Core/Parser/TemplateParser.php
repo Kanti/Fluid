@@ -9,6 +9,8 @@ namespace TYPO3Fluid\Fluid\Core\Parser;
 
 use TYPO3Fluid\Fluid\Core\Compiler\StopCompilingException;
 use TYPO3Fluid\Fluid\Core\Compiler\UncompilableTemplateInterface;
+use TYPO3Fluid\Fluid\Core\Parser\Lexer\ShorthandToken;
+use TYPO3Fluid\Fluid\Core\Parser\Lexer\ShorthandTokenizer;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TagAttribute;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TemplateLexer;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TemplateLexerInterface;
@@ -60,6 +62,8 @@ class TemplateParser
     protected RenderingContextInterface $renderingContext;
 
     protected ?TemplateLexerInterface $templateLexer = null;
+
+    protected ?ShorthandTokenizer $shorthandTokenizer = null;
 
     protected int $pointerLineNumber = 1;
 
@@ -230,6 +234,11 @@ class TemplateParser
     protected function getTemplateLexer(): TemplateLexerInterface
     {
         return $this->templateLexer ??= new TemplateLexer();
+    }
+
+    protected function getShorthandTokenizer(): ShorthandTokenizer
+    {
+        return $this->shorthandTokenizer ??= new ShorthandTokenizer();
     }
 
     /**
@@ -668,29 +677,16 @@ class TemplateParser
      */
     protected function textAndShorthandSyntaxHandler(ParsingState $state, string $text, int $context): void
     {
-        $sectionSplitPattern = $context === self::CONTEXT_INSIDE_CDATA
-            ? Patterns::$SPLIT_PATTERN_SHORTHANDSYNTAX_IN_CDATA
-            : Patterns::$SPLIT_PATTERN_SHORTHANDSYNTAX;
-        $sections = preg_split($sectionSplitPattern, $text, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY);
-        if ($sections === false) {
-            // String $text was not possible to split; we must return a text node with the full text instead.
-            $this->textHandler($state, $text);
-            return;
-        }
+        $tokenizerContext = $context === self::CONTEXT_INSIDE_CDATA
+            ? ShorthandTokenizer::CONTEXT_CDATA
+            : ShorthandTokenizer::CONTEXT_NORMAL;
+        $sections = $this->getShorthandTokenizer()->tokenize($text, $tokenizerContext);
         foreach ($sections as $section) {
-            if ($context === self::CONTEXT_INSIDE_CDATA) {
-                // Removes {{ }} from section to be able to re-use normal shorthand syntax workflow
-                // for CDATA sections
-                if (preg_match(Patterns::$SCAN_PATTERN_SHORTHANDSYNTAX_IN_CDATA, $section, $matchedVariables)) {
-                    $normalizedSection = $matchedVariables['ExpressionVariable'];
-                } else {
-                    $this->textHandler($state, $section);
-                    continue;
-                }
-            } else {
-                $normalizedSection = $section;
+            if ($context === self::CONTEXT_INSIDE_CDATA && $section->type === ShorthandToken::TYPE_TEXT) {
+                $this->textHandler($state, $section->source);
+                continue;
             }
-
+            $normalizedSection = $section->normalizedSource;
             $matchedVariables = [];
             if (preg_match(Patterns::$SCAN_PATTERN_SHORTHANDSYNTAX_OBJECTACCESSORS, $normalizedSection, $matchedVariables) > 0) {
                 try {
@@ -702,7 +698,7 @@ class TemplateParser
                         (isset($matchedVariables['AdditionalViewHelpers']) ? $matchedVariables['AdditionalViewHelpers'] : ''),
                     )) {
                         // As fallback we simply render the accessor back as template content.
-                        $this->textHandler($state, $section);
+                        $this->textHandler($state, $section->source);
                     }
                 } catch (\TYPO3Fluid\Fluid\Core\ViewHelper\Exception $error) {
                     $this->textHandler(
@@ -761,7 +757,7 @@ class TemplateParser
 
             if (!$expressionNode) {
                 // As fallback we simply render the expression back as template content.
-                $this->textHandler($state, $section);
+                $this->textHandler($state, $section->source);
             }
         }
     }
