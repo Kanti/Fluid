@@ -9,8 +9,6 @@ namespace TYPO3Fluid\Fluid\Core\Parser;
 
 use TYPO3Fluid\Fluid\Core\Compiler\StopCompilingException;
 use TYPO3Fluid\Fluid\Core\Compiler\UncompilableTemplateInterface;
-use TYPO3Fluid\Fluid\Core\Parser\Lexer\ShorthandToken;
-use TYPO3Fluid\Fluid\Core\Parser\Lexer\ShorthandTokenizer;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TagAttribute;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TemplateLexer;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TemplateLexerInterface;
@@ -62,8 +60,6 @@ class TemplateParser
     protected RenderingContextInterface $renderingContext;
 
     protected ?TemplateLexerInterface $templateLexer = null;
-
-    protected ?ShorthandTokenizer $shorthandTokenizer = null;
 
     protected int $pointerLineNumber = 1;
 
@@ -217,10 +213,7 @@ class TemplateParser
      */
     protected function splitTemplateAtDynamicTags(string $templateString): array
     {
-        return array_map(
-            static fn(TemplateToken $token): string => $token->source,
-            $this->tokenizeTemplate($templateString),
-        );
+        return preg_split(Patterns::$SPLIT_PATTERN_TEMPLATE_DYNAMICTAGS, $templateString, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY);
     }
 
     /**
@@ -234,11 +227,6 @@ class TemplateParser
     protected function getTemplateLexer(): TemplateLexerInterface
     {
         return $this->templateLexer ??= new TemplateLexer();
-    }
-
-    protected function getShorthandTokenizer(): ShorthandTokenizer
-    {
-        return $this->shorthandTokenizer ??= new ShorthandTokenizer();
     }
 
     /**
@@ -296,11 +284,22 @@ class TemplateParser
                 )) {
                     continue;
                 }
-            } elseif ($templateToken->type === TemplateToken::TYPE_CDATA) {
-                $this->textAndShorthandSyntaxHandler($state, $templateToken->content ?? '', self::CONTEXT_INSIDE_CDATA);
+            } elseif ($templateToken->type === TemplateToken::TYPE_SHORTHAND) {
+                $this->processShorthandToken(
+                    $state,
+                    $templateToken->source,
+                    $templateToken->normalizedSource ?? $templateToken->source,
+                    $templateToken->insideCdata ? self::CONTEXT_INSIDE_CDATA : $context,
+                );
                 continue;
             }
-            $this->textAndShorthandSyntaxHandler($state, $templateElement, $context);
+            if ($context === self::CONTEXT_INSIDE_VIEWHELPER_ARGUMENTS
+                && preg_match(Patterns::$SCAN_PATTERN_SHORTHANDSYNTAX_ARRAYS, $templateElement, $matchedVariables) > 0
+            ) {
+                $this->arrayHandler($state, $this->recursiveArrayHandler($state, $matchedVariables['Array']));
+                continue;
+            }
+            $this->textHandler($state, $templateElement);
         }
 
         if ($state->countNodeStack() !== 1) {
@@ -677,88 +676,85 @@ class TemplateParser
      */
     protected function textAndShorthandSyntaxHandler(ParsingState $state, string $text, int $context): void
     {
-        $tokenizerContext = $context === self::CONTEXT_INSIDE_CDATA
-            ? ShorthandTokenizer::CONTEXT_CDATA
-            : ShorthandTokenizer::CONTEXT_NORMAL;
-        $sections = $this->getShorthandTokenizer()->tokenize($text, $tokenizerContext);
+        $sections = $this->getTemplateLexer()->tokenize($text);
         foreach ($sections as $section) {
-            if ($context === self::CONTEXT_INSIDE_CDATA && $section->type === ShorthandToken::TYPE_TEXT) {
+            if ($section->type === TemplateToken::TYPE_TEXT || $section->type === TemplateToken::TYPE_OPEN_VIEWHELPER_TAG || $section->type === TemplateToken::TYPE_CLOSE_VIEWHELPER_TAG) {
                 $this->textHandler($state, $section->source);
                 continue;
             }
-            $normalizedSection = $section->normalizedSource;
+            $this->processShorthandToken($state, $section->source, $section->normalizedSource ?? $section->source, $section->insideCdata ? self::CONTEXT_INSIDE_CDATA : $context);
+        }
+    }
+
+    protected function processShorthandToken(ParsingState $state, string $source, string $normalizedSection, int $context): void
+    {
+        $matchedVariables = [];
+        if (preg_match(Patterns::$SCAN_PATTERN_SHORTHANDSYNTAX_OBJECTACCESSORS, $normalizedSection, $matchedVariables) > 0) {
+            try {
+                if (!$this->objectAccessorHandler(
+                    $state,
+                    $matchedVariables['Object'],
+                    $matchedVariables['Delimiter'],
+                    (isset($matchedVariables['ViewHelper']) ? $matchedVariables['ViewHelper'] : ''),
+                    (isset($matchedVariables['AdditionalViewHelpers']) ? $matchedVariables['AdditionalViewHelpers'] : ''),
+                )) {
+                    $this->textHandler($state, $source);
+                }
+            } catch (\TYPO3Fluid\Fluid\Core\ViewHelper\Exception $error) {
+                $this->textHandler(
+                    $state,
+                    $this->renderingContext->getErrorHandler()->handleViewHelperError($error, $state->getOriginalTemplatePath()),
+                );
+            } catch (Exception $error) {
+                $this->textHandler(
+                    $state,
+                    $this->renderingContext->getErrorHandler()->handleParserError($error),
+                );
+            }
+            return;
+        }
+
+        if ($context === self::CONTEXT_INSIDE_VIEWHELPER_ARGUMENTS
+            && preg_match(Patterns::$SCAN_PATTERN_SHORTHANDSYNTAX_ARRAYS, $normalizedSection, $matchedVariables) > 0
+        ) {
+            $this->arrayHandler($state, $this->recursiveArrayHandler($state, $matchedVariables['Array']));
+            return;
+        }
+
+        $expressionNode = null;
+        foreach ($this->renderingContext->getExpressionNodeTypes() as $expressionNodeTypeClassName) {
+            $detectionExpression = $expressionNodeTypeClassName::$detectionExpression;
             $matchedVariables = [];
-            if (preg_match(Patterns::$SCAN_PATTERN_SHORTHANDSYNTAX_OBJECTACCESSORS, $normalizedSection, $matchedVariables) > 0) {
+            preg_match_all($detectionExpression, $normalizedSection, $matchedVariables, PREG_SET_ORDER);
+            foreach ($matchedVariables as $matchedVariableSet) {
+                $expressionStartPosition = strpos($normalizedSection, $matchedVariableSet[0]);
+                /** @var ExpressionNodeInterface $expressionNode */
+                $expressionNode = new $expressionNodeTypeClassName($matchedVariableSet[0], $matchedVariableSet, $state);
                 try {
-                    if (!$this->objectAccessorHandler(
-                        $state,
-                        $matchedVariables['Object'],
-                        $matchedVariables['Delimiter'],
-                        (isset($matchedVariables['ViewHelper']) ? $matchedVariables['ViewHelper'] : ''),
-                        (isset($matchedVariables['AdditionalViewHelpers']) ? $matchedVariables['AdditionalViewHelpers'] : ''),
-                    )) {
-                        // As fallback we simply render the accessor back as template content.
-                        $this->textHandler($state, $section->source);
+                    if ($expressionStartPosition > 0) {
+                        $state->getNodeFromStack()->addChildNode(new TextNode(substr($normalizedSection, 0, $expressionStartPosition)));
                     }
-                } catch (\TYPO3Fluid\Fluid\Core\ViewHelper\Exception $error) {
+
+                    $this->callInterceptor($expressionNode, InterceptorInterface::INTERCEPT_EXPRESSION, $state);
+                    $state->getNodeFromStack()->addChildNode($expressionNode);
+
+                    $expressionEndPosition = $expressionStartPosition + strlen($matchedVariableSet[0]);
+                    if ($expressionEndPosition < strlen($normalizedSection)) {
+                        $remainingSection = substr($normalizedSection, $expressionEndPosition);
+                        $this->textAndShorthandSyntaxHandler($state, $remainingSection, $context);
+                        break;
+                    }
+                } catch (ExpressionException $error) {
                     $this->textHandler(
                         $state,
-                        $this->renderingContext->getErrorHandler()->handleViewHelperError($error, $state->getOriginalTemplatePath()),
-                    );
-                } catch (Exception $error) {
-                    $this->textHandler(
-                        $state,
-                        $this->renderingContext->getErrorHandler()->handleParserError($error),
+                        $this->renderingContext->getErrorHandler()->handleExpressionError($error),
                     );
                 }
-                continue;
             }
+        }
 
-            if ($context === self::CONTEXT_INSIDE_VIEWHELPER_ARGUMENTS
-                && preg_match(Patterns::$SCAN_PATTERN_SHORTHANDSYNTAX_ARRAYS, $normalizedSection, $matchedVariables) > 0
-            ) {
-                // We only match arrays if we are INSIDE viewhelper arguments
-                $this->arrayHandler($state, $this->recursiveArrayHandler($state, $matchedVariables['Array']));
-                continue;
-            }
-
-            // We ask custom ExpressionNode instances from ViewHelperResolver
-            // if any match our expression:
-            $expressionNode = null;
-            foreach ($this->renderingContext->getExpressionNodeTypes() as $expressionNodeTypeClassName) {
-                $detectionExpression = $expressionNodeTypeClassName::$detectionExpression;
-                $matchedVariables = [];
-                preg_match_all($detectionExpression, $normalizedSection, $matchedVariables, PREG_SET_ORDER);
-                foreach ($matchedVariables as $matchedVariableSet) {
-                    $expressionStartPosition = strpos($normalizedSection, $matchedVariableSet[0]);
-                    /** @var ExpressionNodeInterface $expressionNode */
-                    $expressionNode = new $expressionNodeTypeClassName($matchedVariableSet[0], $matchedVariableSet, $state);
-                    try {
-                        if ($expressionStartPosition > 0) {
-                            $state->getNodeFromStack()->addChildNode(new TextNode(substr($normalizedSection, 0, $expressionStartPosition)));
-                        }
-
-                        $this->callInterceptor($expressionNode, InterceptorInterface::INTERCEPT_EXPRESSION, $state);
-                        $state->getNodeFromStack()->addChildNode($expressionNode);
-
-                        $expressionEndPosition = $expressionStartPosition + strlen($matchedVariableSet[0]);
-                        if ($expressionEndPosition < strlen($normalizedSection)) {
-                            $this->textAndShorthandSyntaxHandler($state, substr($normalizedSection, $expressionEndPosition), $context);
-                            break;
-                        }
-                    } catch (ExpressionException $error) {
-                        $this->textHandler(
-                            $state,
-                            $this->renderingContext->getErrorHandler()->handleExpressionError($error),
-                        );
-                    }
-                }
-            }
-
-            if (!$expressionNode) {
-                // As fallback we simply render the expression back as template content.
-                $this->textHandler($state, $section->source);
-            }
+        if (!$expressionNode) {
+            $this->textHandler($state, $source);
         }
     }
 

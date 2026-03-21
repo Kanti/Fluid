@@ -15,6 +15,7 @@ final readonly class TemplateToken
     public const TYPE_OPEN_VIEWHELPER_TAG = 'open_viewhelper_tag';
     public const TYPE_CLOSE_VIEWHELPER_TAG = 'close_viewhelper_tag';
     public const TYPE_CDATA = 'cdata';
+    public const TYPE_SHORTHAND = 'shorthand';
 
     public function __construct(
         public string $type,
@@ -28,11 +29,13 @@ final readonly class TemplateToken
         public array $tagAttributes = [],
         public bool $selfClosing = false,
         public ?string $content = null,
+        public ?string $normalizedSource = null,
+        public bool $insideCdata = false,
     ) {}
 
-    public static function text(string $source): self
+    public static function text(string $source, bool $insideCdata = false): self
     {
-        return new self(self::TYPE_TEXT, $source);
+        return new self(self::TYPE_TEXT, $source, normalizedSource: $source, insideCdata: $insideCdata);
     }
 
     public static function openViewHelperTag(
@@ -51,6 +54,7 @@ final readonly class TemplateToken
             $attributes,
             $tagAttributes,
             $selfClosing,
+            normalizedSource: $source,
         );
     }
 
@@ -64,11 +68,17 @@ final readonly class TemplateToken
             $source,
             $namespaceIdentifier,
             $methodIdentifier,
+            normalizedSource: $source,
         );
     }
 
     public static function cdata(string $source, string $content): self
     {
-        return new self(self::TYPE_CDATA, $source, content: $content);
+        return new self(self::TYPE_CDATA, $source, content: $content, normalizedSource: $source);
+    }
+
+    public static function shorthand(string $source, string $normalizedSource, bool $insideCdata = false): self
+    {
+        return new self(self::TYPE_SHORTHAND, $source, normalizedSource: $normalizedSource, insideCdata: $insideCdata);
     }
 }

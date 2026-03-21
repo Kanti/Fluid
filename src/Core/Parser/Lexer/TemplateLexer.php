@@ -19,14 +19,52 @@ final class TemplateLexer implements TemplateLexerInterface
         $sourceLength = strlen($templateSource);
 
         while ($cursor < $sourceLength) {
-            if ($templateSource[$cursor] !== '<') {
-                $cursor++;
-                continue;
+            if ($templateSource[$cursor] === '<') {
+                $token = $this->scanCdata($templateSource, $cursor)
+                    ?? $this->scanClosingViewHelperTag($templateSource, $cursor)
+                    ?? $this->scanOpeningViewHelperTag($templateSource, $cursor);
+
+                if ($token instanceof TemplateToken) {
+                    if ($cursor > $textStart) {
+                        array_push($tokens, ...$this->tokenizeTextSegment(substr($templateSource, $textStart, $cursor - $textStart), false));
+                    }
+
+                    if ($token->type === TemplateToken::TYPE_CDATA) {
+                        array_push($tokens, ...$this->tokenizeTextSegment($token->content ?? '', true));
+                    } else {
+                        $tokens[] = $token;
+                    }
+
+                    $cursor += strlen($token->source);
+                    $textStart = $cursor;
+                    continue;
+                }
             }
 
-            $token = $this->scanCdata($templateSource, $cursor)
-                ?? $this->scanClosingViewHelperTag($templateSource, $cursor)
-                ?? $this->scanOpeningViewHelperTag($templateSource, $cursor);
+            $cursor++;
+        }
+
+        if ($textStart < $sourceLength) {
+            array_push($tokens, ...$this->tokenizeTextSegment(substr($templateSource, $textStart), false));
+        }
+
+        return $tokens;
+    }
+
+    /**
+     * @return list<TemplateToken>
+     */
+    private function tokenizeTextSegment(string $text, bool $insideCdata): array
+    {
+        $tokens = [];
+        $cursor = 0;
+        $textStart = 0;
+        $length = strlen($text);
+
+        while ($cursor < $length) {
+            $token = $insideCdata
+                ? $this->scanCdataShorthand($text, $cursor)
+                : $this->scanShorthand($text, $cursor);
 
             if (!$token instanceof TemplateToken) {
                 $cursor++;
@@ -34,15 +72,15 @@ final class TemplateLexer implements TemplateLexerInterface
             }
 
             if ($cursor > $textStart) {
-                $tokens[] = TemplateToken::text(substr($templateSource, $textStart, $cursor - $textStart));
+                $tokens[] = TemplateToken::text(substr($text, $textStart, $cursor - $textStart), $insideCdata);
             }
             $tokens[] = $token;
             $cursor += strlen($token->source);
             $textStart = $cursor;
         }
 
-        if ($textStart < $sourceLength) {
-            $tokens[] = TemplateToken::text(substr($templateSource, $textStart));
+        if ($textStart < $length) {
+            $tokens[] = TemplateToken::text(substr($text, $textStart), $insideCdata);
         }
 
         return $tokens;
@@ -196,6 +234,81 @@ final class TemplateLexer implements TemplateLexerInterface
         return TemplateToken::openViewHelperTag($source, $namespaceIdentifier, $methodIdentifier, $attributes, $tagAttributes, $selfClosing);
     }
 
+    private function scanShorthand(string $text, int $offset): ?TemplateToken
+    {
+        if (!isset($text[$offset]) || $text[$offset] !== '{') {
+            return null;
+        }
+
+        $cursor = $offset + 1;
+        $depth = 1;
+        while (isset($text[$cursor])) {
+            $character = $text[$cursor];
+            if ($character === '"' || $character === '\'') {
+                $cursor = $this->skipQuotedString($text, $cursor);
+                continue;
+            }
+            if ($character === '{') {
+                $depth++;
+                $cursor++;
+                continue;
+            }
+            if ($character === '}') {
+                $depth--;
+                $cursor++;
+                if ($depth === 0) {
+                    $source = substr($text, $offset, $cursor - $offset);
+                    if (strlen($source) <= 2) {
+                        return null;
+                    }
+                    return TemplateToken::shorthand($source, $source, false);
+                }
+                continue;
+            }
+            $cursor++;
+        }
+
+        return null;
+    }
+
+    private function scanCdataShorthand(string $text, int $offset): ?TemplateToken
+    {
+        if (substr($text, $offset, 3) !== '{{{') {
+            return null;
+        }
+
+        $cursor = $offset + 3;
+        $depth = 1;
+        while (isset($text[$cursor])) {
+            if (substr($text, $cursor, 3) === '{{{') {
+                $depth++;
+                $cursor += 3;
+                continue;
+            }
+            if (substr($text, $cursor, 3) === '}}}') {
+                $depth--;
+                $cursor += 3;
+                if ($depth === 0) {
+                    $source = substr($text, $offset, $cursor - $offset);
+                    if (strlen($source) <= 6) {
+                        return null;
+                    }
+                    return TemplateToken::shorthand($source, substr($source, 2, -2), true);
+                }
+                continue;
+            }
+
+            $character = $text[$cursor];
+            if ($character === '"' || $character === '\'') {
+                $cursor = $this->skipQuotedString($text, $cursor);
+                continue;
+            }
+            $cursor++;
+        }
+
+        return null;
+    }
+
     private function consumeWhile(string $templateSource, int &$cursor, \Closure $matcher): string
     {
         $start = $cursor;
@@ -203,6 +316,23 @@ final class TemplateLexer implements TemplateLexerInterface
             $cursor++;
         }
         return substr($templateSource, $start, $cursor - $start);
+    }
+
+    private function skipQuotedString(string $text, int $offset): int
+    {
+        $quote = $text[$offset];
+        $cursor = $offset + 1;
+        while (isset($text[$cursor])) {
+            if ($text[$cursor] === '\\') {
+                $cursor += 2;
+                continue;
+            }
+            $cursor++;
+            if ($text[$cursor - 1] === $quote) {
+                return $cursor;
+            }
+        }
+        return strlen($text);
     }
 
     private static function isNamespaceCharacter(string $char): bool
