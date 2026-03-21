@@ -238,8 +238,6 @@ class TemplateParser
      */
     protected function buildObjectTree(ParsingState $state, array $splitTemplate, int $context): ParsingState
     {
-        $previousBlock = '';
-
         foreach ($splitTemplate as $templateToken) {
             $templateElement = $templateToken->source;
             if ($context === self::CONTEXT_OUTSIDE_VIEWHELPER_ARGUMENTS) {
@@ -248,9 +246,8 @@ class TemplateParser
                 // we want the reference code to contain *all* of the ViewHelper call.
                 $this->pointerTemplateCode = $templateElement;
             }
-            $this->pointerLineNumber += substr_count($templateElement, PHP_EOL);
-            $this->pointerLineCharacter = strlen(substr($previousBlock, strrpos($previousBlock, PHP_EOL))) + 1;
-            $previousBlock = $templateElement;
+            $this->pointerLineNumber = $templateToken->lineNumber;
+            $this->pointerLineCharacter = $templateToken->lineCharacter;
             if ($templateToken->type === TemplateToken::TYPE_OPEN_VIEWHELPER_TAG) {
                 try {
                     if ($this->openingViewHelperTagHandler(

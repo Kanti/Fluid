@@ -14,6 +14,7 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use TYPO3Fluid\Fluid\Core\Parser\Configuration;
 use TYPO3Fluid\Fluid\Core\Parser\ParsingState;
+use TYPO3Fluid\Fluid\Core\Rendering\RenderingContext;
 use TYPO3Fluid\Fluid\Core\Parser\SyntaxTree\RootNode;
 use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\Variables\VariableProviderInterface;
@@ -64,6 +65,18 @@ final class TemplateParserTest extends TestCase
         $children = $rootNode->getChildNodes();
         self::assertCount(1, $children);
         self::assertSame('abc {f:if(condition: value) def', $children[0]->evaluate($renderingContext));
+    }
+
+    #[Test]
+    public function parseUsesTokenLineAndCharacterInErrorMessages(): void
+    {
+        $renderingContext = new RenderingContext();
+        $subject = $renderingContext->getTemplateParser();
+
+        self::expectExceptionMessage('line 2 at character 3');
+        self::expectExceptionMessage('Unknown Namespace: foo');
+
+        $subject->parse("\n  <foo:bar />", 'TestTemplate');
     }
 
 }

@@ -122,11 +122,11 @@ final class TemplateLexerTest extends TestCase
         return [
             'bare object accessor' => [
                 '{object.recursive}',
-                TemplateToken::objectAccessor('{object.recursive}', '{object.recursive}', 'object.recursive', [], false, 1),
+                TemplateToken::objectAccessor('{object.recursive}', '{object.recursive}', 'object.recursive', [], false, 1, 1),
             ],
             'numeric prefixed object accessor' => [
                 '{123numericprefix}',
-                TemplateToken::objectAccessor('{123numericprefix}', '{123numericprefix}', '123numericprefix', [], false, 1),
+                TemplateToken::objectAccessor('{123numericprefix}', '{123numericprefix}', '123numericprefix', [], false, 1, 1),
             ],
             'inline viewhelper only' => [
                 '{f:for(each: bla)}',
@@ -134,7 +134,7 @@ final class TemplateLexerTest extends TestCase
                     new ShorthandInlineViewHelper('f', 'for', [
                         new ShorthandArrayPart('each', variableIdentifier: 'bla'),
                     ]),
-                ], false, 1),
+                ], false, 1, 1),
             ],
             'object accessor with chained inline viewhelpers' => [
                 '{bla.blubb->f:for(param:42)->foo.bar:bla(a:"b\\"->(f:a()", cd: {a:b})}',
@@ -146,7 +146,7 @@ final class TemplateLexerTest extends TestCase
                         new ShorthandArrayPart('a', quotedString: '"b\\"->(f:a()"'),
                         new ShorthandArrayPart('cd', subarray: 'a:b'),
                     ]),
-                ], false, 1),
+                ], false, 1, 1),
             ],
         ];
     }
@@ -166,6 +166,7 @@ final class TemplateLexerTest extends TestCase
                     ],
                     false,
                     1,
+                    1,
                 ),
             ],
             'math expression' => [
@@ -179,6 +180,7 @@ final class TemplateLexerTest extends TestCase
                         1 => '{variable * 10}',
                     ],
                     false,
+                    1,
                     1,
                 ),
             ],
@@ -194,6 +196,7 @@ final class TemplateLexerTest extends TestCase
                     ],
                     false,
                     1,
+                    1,
                 ),
             ],
         ];
@@ -207,7 +210,7 @@ final class TemplateLexerTest extends TestCase
                 TemplateToken::array('{a: b, e: {c:d, "e#":f, \'g\': "h"}}', [
                     new ShorthandArrayPart('a', variableIdentifier: 'b'),
                     new ShorthandArrayPart('e', subarray: 'c:d, "e#":f, \'g\': "h"'),
-                ], 1),
+                ], 1, 1),
             ],
             'quoted keys and digits' => [
                 '{"a": b, foo6: 66, -5foo: -5bar}',
@@ -215,14 +218,14 @@ final class TemplateLexerTest extends TestCase
                     new ShorthandArrayPart('"a"', variableIdentifier: 'b'),
                     new ShorthandArrayPart('foo6', number: '66'),
                     new ShorthandArrayPart('-5foo', variableIdentifier: '-5bar'),
-                ], 1),
+                ], 1, 1),
             ],
             'whitespace separated inline viewhelper arguments' => [
                 '{partial="Structures" section="ValidSection"}',
                 TemplateToken::array('{partial="Structures" section="ValidSection"}', [
                     new ShorthandArrayPart('partial', quotedString: '"Structures"'),
                     new ShorthandArrayPart('section', quotedString: '"ValidSection"'),
-                ], 1),
+                ], 1, 1),
             ],
         ];
     }
@@ -273,6 +276,7 @@ final class TemplateLexerTest extends TestCase
         self::assertSame(TemplateToken::TYPE_TEXT, $tokens[0]->type);
         self::assertSame('before', $tokens[0]->source);
         self::assertSame(1, $tokens[0]->lineNumber);
+        self::assertSame(1, $tokens[0]->lineCharacter);
 
         self::assertSame(TemplateToken::TYPE_OPEN_VIEWHELPER_TAG, $tokens[1]->type);
         self::assertSame('f', $tokens[1]->namespaceIdentifier);
@@ -339,14 +343,14 @@ final class TemplateLexerTest extends TestCase
         $tokens = $subject->tokenize($input);
 
         self::assertCount(5, $tokens);
-        $this->assertLineNumbersAndSources(
+        $this->assertLinePositionsAndSources(
             $tokens,
             [
-                [1, "before\n"],
-                [2, '<f:test />'],
-                [2, "\n"],
-                [3, '{value}'],
-                [3, "\nafter"],
+                [1, 1, "before\n"],
+                [2, 1, '<f:test />'],
+                [2, 11, "\n"],
+                [3, 1, '{value}'],
+                [3, 8, "\nafter"],
             ],
         );
     }
@@ -360,16 +364,16 @@ final class TemplateLexerTest extends TestCase
         $tokens = $subject->tokenize($input);
 
         self::assertCount(7, $tokens);
-        $this->assertLineNumbersAndSources(
+        $this->assertLinePositionsAndSources(
             $tokens,
             [
-                [1, '<f:test>'],
-                [1, "\n"],
-                [2, 'line1' . PHP_EOL],
-                [3, '{{{value}}}'],
-                [3, PHP_EOL . 'line3'],
-                [4, "\n"],
-                [5, '</f:test>'],
+                [1, 1, '<f:test>'],
+                [1, 9, "\n"],
+                [2, 10, 'line1' . PHP_EOL],
+                [3, 1, '{{{value}}}'],
+                [3, 12, PHP_EOL . 'line3'],
+                [4, 9, "\n"],
+                [5, 1, '</f:test>'],
             ],
         );
     }
@@ -436,15 +440,16 @@ final class TemplateLexerTest extends TestCase
     }
 
     /**
-     * @param list<array{0: int, 1: string}> $expectedLinesAndSources
+     * @param list<array{0: int, 1: int, 2: string}> $expectedLinePositionsAndSources
      * @param list<TemplateToken> $tokens
      */
-    private function assertLineNumbersAndSources(array $tokens, array $expectedLinesAndSources): void
+    private function assertLinePositionsAndSources(array $tokens, array $expectedLinePositionsAndSources): void
     {
-        self::assertCount(count($expectedLinesAndSources), $tokens);
+        self::assertCount(count($expectedLinePositionsAndSources), $tokens);
 
-        foreach ($expectedLinesAndSources as $index => [$expectedLineNumber, $expectedSource]) {
+        foreach ($expectedLinePositionsAndSources as $index => [$expectedLineNumber, $expectedLineCharacter, $expectedSource]) {
             self::assertSame($expectedLineNumber, $tokens[$index]->lineNumber);
+            self::assertSame($expectedLineCharacter, $tokens[$index]->lineCharacter);
             self::assertSame($expectedSource, $tokens[$index]->source);
         }
     }

@@ -90,12 +90,12 @@ final class TemplateLexer implements TemplateLexerInterface
             }
 
             if ($cursor > $textStart) {
-            $tokens[] = $this->createTextToken($templateSource, $textStart, $cursor, $insideCdata);
+                $tokens[] = $this->createTextToken($templateSource, $textStart, $cursor, $insideCdata);
+            }
+            $tokens[] = $token;
+            $cursor += strlen($token->source);
+            $textStart = $cursor;
         }
-        $tokens[] = $token;
-        $cursor += strlen($token->source);
-        $textStart = $cursor;
-    }
 
         if ($textStart < $end) {
             $tokens[] = $this->createTextToken($templateSource, $textStart, $end, $insideCdata);
@@ -106,10 +106,12 @@ final class TemplateLexer implements TemplateLexerInterface
 
     private function createTextToken(string $templateSource, int $start, int $end, bool $insideCdata): TemplateToken
     {
+        [$lineNumber, $lineCharacter] = $this->linePositionAt($templateSource, $start);
         return TemplateToken::text(
             $this->sliceSource($templateSource, $start, $end),
             $insideCdata,
-            $this->lineNumberAt($templateSource, $start),
+            $lineNumber,
+            $lineCharacter,
         );
     }
 
@@ -126,10 +128,12 @@ final class TemplateLexer implements TemplateLexerInterface
 
         $end = $endPosition + strlen(self::CDATA_SUFFIX);
         $source = $this->sliceSource($templateSource, $offset, $end);
+        [$lineNumber, $lineCharacter] = $this->linePositionAt($templateSource, $offset);
         return TemplateToken::cdata(
             $source,
             substr($source, strlen(self::CDATA_PREFIX), -3),
-            $this->lineNumberAt($templateSource, $offset),
+            $lineNumber,
+            $lineCharacter,
         );
     }
 
@@ -160,11 +164,13 @@ final class TemplateLexer implements TemplateLexerInterface
         }
 
         $source = $this->sliceSource($templateSource, $offset, $cursor + 1);
+        [$lineNumber, $lineCharacter] = $this->linePositionAt($templateSource, $offset);
         return TemplateToken::closeViewHelperTag(
             $source,
             $namespaceIdentifier,
             $methodIdentifier,
-            $this->lineNumberAt($templateSource, $offset),
+            $lineNumber,
+            $lineCharacter,
         );
     }
 
@@ -307,6 +313,7 @@ final class TemplateLexer implements TemplateLexerInterface
         }
 
         $source = $this->sliceSource($templateSource, $offset, $cursor + 1);
+        [$lineNumber, $lineCharacter] = $this->linePositionAt($templateSource, $offset);
         return TemplateToken::openViewHelperTag(
             $source,
             $identifier['namespaceIdentifier'],
@@ -314,7 +321,8 @@ final class TemplateLexer implements TemplateLexerInterface
             $attributes['attributes'],
             $attributes['tagAttributes'],
             $selfClosing,
-            $this->lineNumberAt($templateSource, $offset),
+            $lineNumber,
+            $lineCharacter,
         );
     }
 
@@ -393,11 +401,11 @@ final class TemplateLexer implements TemplateLexerInterface
 
     private function classifyShorthandToken(string $templateSource, string $source, string $normalizedSource, bool $insideCdata, int $start, int $end): ?TemplateToken
     {
-        $lineNumber = $this->lineNumberAt($templateSource, $start);
+        [$lineNumber, $lineCharacter] = $this->linePositionAt($templateSource, $start);
 
-        $token = $this->tryCreateArrayToken($source, $normalizedSource, $insideCdata, $lineNumber)
-            ?? $this->tryCreateObjectAccessorToken($source, $normalizedSource, $insideCdata, $lineNumber)
-            ?? $this->tryCreateExpressionToken($source, $normalizedSource, $insideCdata, $lineNumber);
+        $token = $this->tryCreateArrayToken($source, $normalizedSource, $insideCdata, $lineNumber, $lineCharacter)
+            ?? $this->tryCreateObjectAccessorToken($source, $normalizedSource, $insideCdata, $lineNumber, $lineCharacter)
+            ?? $this->tryCreateExpressionToken($source, $normalizedSource, $insideCdata, $lineNumber, $lineCharacter);
         if ($token instanceof TemplateToken) {
             return $token;
         }
@@ -406,7 +414,7 @@ final class TemplateLexer implements TemplateLexerInterface
             return null;
         }
 
-        return TemplateToken::shorthand($source, $normalizedSource, $insideCdata, $lineNumber);
+        return TemplateToken::shorthand($source, $normalizedSource, $insideCdata, $lineNumber, $lineCharacter);
     }
 
     private function isEmptyShorthand(string $source, bool $insideCdata): bool
@@ -414,11 +422,11 @@ final class TemplateLexer implements TemplateLexerInterface
         return strlen($source) <= ($insideCdata ? 6 : 2);
     }
 
-    private function tryCreateArrayToken(string $source, string $normalizedSource, bool $insideCdata = false, int $lineNumber = 1): ?TemplateToken
+    private function tryCreateArrayToken(string $source, string $normalizedSource, bool $insideCdata = false, int $lineNumber = 1, int $lineCharacter = 1): ?TemplateToken
     {
         $innerSource = trim(substr($normalizedSource, 1, -1));
         if ($innerSource === '') {
-            return TemplateToken::array($source, [], $lineNumber);
+            return TemplateToken::array($source, [], $lineNumber, $lineCharacter);
         }
 
         $arrayParts = $this->parseShorthandArrayParts($innerSource);
@@ -426,10 +434,10 @@ final class TemplateLexer implements TemplateLexerInterface
             return null;
         }
 
-        return TemplateToken::array($source, $arrayParts, $lineNumber);
+        return TemplateToken::array($source, $arrayParts, $lineNumber, $lineCharacter);
     }
 
-    private function tryCreateObjectAccessorToken(string $source, string $normalizedSource, bool $insideCdata = false, int $lineNumber = 1): ?TemplateToken
+    private function tryCreateObjectAccessorToken(string $source, string $normalizedSource, bool $insideCdata = false, int $lineNumber = 1, int $lineCharacter = 1): ?TemplateToken
     {
         $content = substr($normalizedSource, 1, -1);
         if ($content !== trim($content)) {
@@ -447,10 +455,11 @@ final class TemplateLexer implements TemplateLexerInterface
             $parsed['inlineViewHelpers'],
             $insideCdata,
             $lineNumber,
+            $lineCharacter,
         );
     }
 
-    private function tryCreateExpressionToken(string $source, string $normalizedSource, bool $insideCdata = false, int $lineNumber = 1): ?TemplateToken
+    private function tryCreateExpressionToken(string $source, string $normalizedSource, bool $insideCdata = false, int $lineNumber = 1, int $lineCharacter = 1): ?TemplateToken
     {
         $expressionNodeType = $this->detectExpressionNodeType($normalizedSource);
         if ($expressionNodeType === null) {
@@ -467,6 +476,7 @@ final class TemplateLexer implements TemplateLexerInterface
             ],
             $insideCdata,
             $lineNumber,
+            $lineCharacter,
         );
     }
 
@@ -1225,13 +1235,21 @@ final class TemplateLexer implements TemplateLexerInterface
         return substr($templateSource, $start, $end - $start);
     }
 
-    private function lineNumberAt(string $templateSource, int $offset): int
+    /**
+     * @return array{0: int, 1: int}
+     */
+    private function linePositionAt(string $templateSource, int $offset): array
     {
         if ($offset <= 0) {
-            return 1;
+            return [1, 1];
         }
 
-        return substr_count(substr($templateSource, 0, $offset), PHP_EOL) + 1;
+        $prefix = substr($templateSource, 0, $offset);
+        $lineNumber = substr_count($prefix, PHP_EOL) + 1;
+        $lastNewlineOffset = strrpos($prefix, PHP_EOL);
+        $lineCharacter = $lastNewlineOffset === false ? $offset + 1 : $offset - $lastNewlineOffset;
+
+        return [$lineNumber, $lineCharacter];
     }
 
     private static function isNamespaceCharacter(string $char): bool

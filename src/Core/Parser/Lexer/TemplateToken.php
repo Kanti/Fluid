@@ -24,6 +24,7 @@ final readonly class TemplateToken
         public string $type,
         public string $source,
         public int $lineNumber = 1,
+        public int $lineCharacter = 1,
         public ?string $namespaceIdentifier = null,
         public ?string $methodIdentifier = null,
         public ?string $attributes = null,
@@ -52,9 +53,10 @@ final readonly class TemplateToken
         string $source,
         bool $insideCdata = false,
         int $lineNumber = 1,
+        int $lineCharacter = 1,
     ): self
     {
-        return new self(self::TYPE_TEXT, $source, $lineNumber, normalizedSource: $source, insideCdata: $insideCdata);
+        return new self(self::TYPE_TEXT, $source, $lineNumber, $lineCharacter, normalizedSource: $source, insideCdata: $insideCdata);
     }
 
     public static function openViewHelperTag(
@@ -65,11 +67,13 @@ final readonly class TemplateToken
         array $tagAttributes,
         bool $selfClosing,
         int $lineNumber = 1,
+        int $lineCharacter = 1,
     ): self {
         return new self(
             self::TYPE_OPEN_VIEWHELPER_TAG,
             $source,
             $lineNumber,
+            $lineCharacter,
             $namespaceIdentifier,
             $methodIdentifier,
             $attributes,
@@ -84,11 +88,13 @@ final readonly class TemplateToken
         string $namespaceIdentifier,
         string $methodIdentifier,
         int $lineNumber = 1,
+        int $lineCharacter = 1,
     ): self {
         return new self(
             self::TYPE_CLOSE_VIEWHELPER_TAG,
             $source,
             $lineNumber,
+            $lineCharacter,
             $namespaceIdentifier,
             $methodIdentifier,
             normalizedSource: $source,
@@ -99,9 +105,10 @@ final readonly class TemplateToken
         string $source,
         string $content,
         int $lineNumber = 1,
+        int $lineCharacter = 1,
     ): self
     {
-        return new self(self::TYPE_CDATA, $source, $lineNumber, content: $content, normalizedSource: $source);
+        return new self(self::TYPE_CDATA, $source, $lineNumber, $lineCharacter, content: $content, normalizedSource: $source);
     }
 
     public static function shorthand(
@@ -109,9 +116,10 @@ final readonly class TemplateToken
         string $normalizedSource,
         bool $insideCdata = false,
         int $lineNumber = 1,
+        int $lineCharacter = 1,
     ): self
     {
-        return new self(self::TYPE_SHORTHAND, $source, $lineNumber, normalizedSource: $normalizedSource, insideCdata: $insideCdata);
+        return new self(self::TYPE_SHORTHAND, $source, $lineNumber, $lineCharacter, normalizedSource: $normalizedSource, insideCdata: $insideCdata);
     }
 
     /**
@@ -121,9 +129,10 @@ final readonly class TemplateToken
         string $source,
         array $arrayParts,
         int $lineNumber = 1,
+        int $lineCharacter = 1,
     ): self
     {
-        return new self(self::TYPE_ARRAY, $source, $lineNumber, normalizedSource: $source, arrayParts: $arrayParts);
+        return new self(self::TYPE_ARRAY, $source, $lineNumber, $lineCharacter, normalizedSource: $source, arrayParts: $arrayParts);
     }
 
     /**
@@ -136,11 +145,13 @@ final readonly class TemplateToken
         array $inlineViewHelpers,
         bool $insideCdata = false,
         int $lineNumber = 1,
+        int $lineCharacter = 1,
     ): self {
         return new self(
             self::TYPE_OBJECT_ACCESSOR,
             $source,
             $lineNumber,
+            $lineCharacter,
             normalizedSource: $normalizedSource,
             insideCdata: $insideCdata,
             objectAccessor: $objectAccessor,
@@ -155,11 +166,13 @@ final readonly class TemplateToken
         array $expressionMatches,
         bool $insideCdata = false,
         int $lineNumber = 1,
+        int $lineCharacter = 1,
     ): self {
         return new self(
             self::TYPE_EXPRESSION,
             $source,
             $lineNumber,
+            $lineCharacter,
             normalizedSource: $normalizedSource,
             insideCdata: $insideCdata,
             expressionNodeType: $expressionNodeType,
