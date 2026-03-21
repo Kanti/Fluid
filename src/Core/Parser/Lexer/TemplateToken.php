@@ -17,6 +17,7 @@ final readonly class TemplateToken
     public const TYPE_CDATA = 'cdata';
     public const TYPE_SHORTHAND = 'shorthand';
     public const TYPE_ARRAY = 'array';
+    public const TYPE_OBJECT_ACCESSOR = 'object_accessor';
 
     public function __construct(
         public string $type,
@@ -36,6 +37,11 @@ final readonly class TemplateToken
          * @var list<ShorthandArrayPart>
          */
         public array $arrayParts = [],
+        public ?string $objectAccessor = null,
+        /**
+         * @var list<ShorthandInlineViewHelper>
+         */
+        public array $inlineViewHelpers = [],
     ) {}
 
     public static function text(string $source, bool $insideCdata = false): self
@@ -93,5 +99,25 @@ final readonly class TemplateToken
     public static function array(string $source, array $arrayParts): self
     {
         return new self(self::TYPE_ARRAY, $source, normalizedSource: $source, arrayParts: $arrayParts);
+    }
+
+    /**
+     * @param list<ShorthandInlineViewHelper> $inlineViewHelpers
+     */
+    public static function objectAccessor(
+        string $source,
+        string $normalizedSource,
+        string $objectAccessor,
+        array $inlineViewHelpers,
+        bool $insideCdata = false,
+    ): self {
+        return new self(
+            self::TYPE_OBJECT_ACCESSOR,
+            $source,
+            normalizedSource: $normalizedSource,
+            insideCdata: $insideCdata,
+            objectAccessor: $objectAccessor,
+            inlineViewHelpers: $inlineViewHelpers,
+        );
     }
 }

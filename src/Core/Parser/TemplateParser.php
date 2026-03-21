@@ -292,6 +292,9 @@ class TemplateParser
                     $templateToken->insideCdata ? self::CONTEXT_INSIDE_CDATA : $context,
                 );
                 continue;
+            } elseif ($templateToken->type === TemplateToken::TYPE_OBJECT_ACCESSOR) {
+                $this->processObjectAccessorToken($state, $templateToken);
+                continue;
             } elseif ($templateToken->type === TemplateToken::TYPE_ARRAY) {
                 $this->arrayHandler($state, $this->recursiveArrayHandler($state, $templateToken->arrayParts));
                 continue;
@@ -445,53 +448,33 @@ class TemplateParser
      * @param string $objectAccessorString String which identifies which objects to fetch
      * @return bool  true if the object accessor has been added to the node tree
      */
-    protected function objectAccessorHandler(ParsingState $state, string $objectAccessorString, string $delimiter, string $viewHelperString, string $additionalViewHelpersString): bool
+    protected function objectAccessorHandler(ParsingState $state, string $objectAccessorString, array $inlineViewHelpers): bool
     {
-        $viewHelperString .= $additionalViewHelpersString;
         $numberOfViewHelpers = 0;
-
-        // The following post-processing handles a case when there is only a ViewHelper, and no Object Accessor.
-        // Resolves bug #5107.
-        if (strlen($delimiter) === 0 && strlen($viewHelperString) > 0) {
-            $viewHelperString = $objectAccessorString . $viewHelperString;
-            $objectAccessorString = '';
-        }
-
-        // ViewHelpers
-        $matches = [];
-        if (strlen($viewHelperString) > 0 && preg_match_all(Patterns::$SPLIT_PATTERN_SHORTHANDSYNTAX_VIEWHELPER, $viewHelperString, $matches, PREG_SET_ORDER) > 0) {
-            // First validate all ViewHelper namespace in the chain.
-            // The last ViewHelper has to be processed first for correct chaining.
-            $matches = array_reverse($matches);
+        if ($inlineViewHelpers !== []) {
+            $reversedViewHelpers = array_reverse($inlineViewHelpers);
             $ignoredNamespaceInChain = false;
             $viewHelperResolver = $this->renderingContext->getViewHelperResolver();
-            foreach ($matches as $singleMatch) {
-                // Check for ignored ViewHelper namespace
-                if ($viewHelperResolver->isNamespaceIgnored($singleMatch['NamespaceIdentifier'])) {
+            foreach ($reversedViewHelpers as $inlineViewHelper) {
+                if ($viewHelperResolver->isNamespaceIgnored($inlineViewHelper->namespaceIdentifier)) {
                     $ignoredNamespaceInChain = true;
                     continue;
                 }
-                // There still should be an exception if a ViewHelper namespace in the chain cannot
-                // be resolved, even if the whole chain is ignored later
-                if (!$viewHelperResolver->isNamespaceValid($singleMatch['NamespaceIdentifier'])) {
-                    throw new UnknownNamespaceException('Unknown Namespace: ' . $singleMatch['NamespaceIdentifier']);
+                if (!$viewHelperResolver->isNamespaceValid($inlineViewHelper->namespaceIdentifier)) {
+                    throw new UnknownNamespaceException('Unknown Namespace: ' . $inlineViewHelper->namespaceIdentifier);
                 }
             }
 
-            // If (at least) one ViewHelper's namespace is ignored, the whole chain of ViewHelpers
-            // is skipped and left as-is in the template.
             if ($ignoredNamespaceInChain) {
                 return false;
             }
 
-            foreach ($matches as $singleMatch) {
+            foreach ($reversedViewHelpers as $inlineViewHelper) {
                 $viewHelperNode = $this->initializeViewHelperAndAddItToStack(
                     $state,
-                    $singleMatch['NamespaceIdentifier'],
-                    $singleMatch['MethodIdentifier'],
-                    fn(ViewHelperNode $viewHelperNode): array => (strlen($singleMatch['ViewHelperArguments']) > 0)
-                        ? $this->recursiveArrayHandler($state, $this->extractArrayPartsFromSource($singleMatch['ViewHelperArguments']), $viewHelperNode)
-                        : [],
+                    $inlineViewHelper->namespaceIdentifier,
+                    $inlineViewHelper->methodIdentifier,
+                    fn(ViewHelperNode $viewHelperNode): array => $this->recursiveArrayHandler($state, $inlineViewHelper->arguments, $viewHelperNode),
                 );
                 if ($viewHelperNode) {
                     $numberOfViewHelpers++;
@@ -514,6 +497,29 @@ class TemplateParser
         }
 
         return true;
+    }
+
+    protected function processObjectAccessorToken(ParsingState $state, TemplateToken $templateToken): void
+    {
+        try {
+            if (!$this->objectAccessorHandler(
+                $state,
+                $templateToken->objectAccessor ?? '',
+                $templateToken->inlineViewHelpers,
+            )) {
+                $this->textHandler($state, $templateToken->source);
+            }
+        } catch (\TYPO3Fluid\Fluid\Core\ViewHelper\Exception $error) {
+            $this->textHandler(
+                $state,
+                $this->renderingContext->getErrorHandler()->handleViewHelperError($error, $state->getOriginalTemplatePath()),
+            );
+        } catch (Exception $error) {
+            $this->textHandler(
+                $state,
+                $this->renderingContext->getErrorHandler()->handleParserError($error),
+            );
+        }
     }
 
     /**
@@ -681,6 +687,10 @@ class TemplateParser
                 $this->textHandler($state, $section->source);
                 continue;
             }
+            if ($section->type === TemplateToken::TYPE_OBJECT_ACCESSOR) {
+                $this->processObjectAccessorToken($state, $section);
+                continue;
+            }
             if ($section->type === TemplateToken::TYPE_ARRAY) {
                 $this->arrayHandler($state, $this->recursiveArrayHandler($state, $section->arrayParts));
                 continue;
@@ -691,32 +701,6 @@ class TemplateParser
 
     protected function processShorthandToken(ParsingState $state, string $source, string $normalizedSection, int $context): void
     {
-        $matchedVariables = [];
-        if (preg_match(Patterns::$SCAN_PATTERN_SHORTHANDSYNTAX_OBJECTACCESSORS, $normalizedSection, $matchedVariables) > 0) {
-            try {
-                if (!$this->objectAccessorHandler(
-                    $state,
-                    $matchedVariables['Object'],
-                    $matchedVariables['Delimiter'],
-                    (isset($matchedVariables['ViewHelper']) ? $matchedVariables['ViewHelper'] : ''),
-                    (isset($matchedVariables['AdditionalViewHelpers']) ? $matchedVariables['AdditionalViewHelpers'] : ''),
-                )) {
-                    $this->textHandler($state, $source);
-                }
-            } catch (\TYPO3Fluid\Fluid\Core\ViewHelper\Exception $error) {
-                $this->textHandler(
-                    $state,
-                    $this->renderingContext->getErrorHandler()->handleViewHelperError($error, $state->getOriginalTemplatePath()),
-                );
-            } catch (Exception $error) {
-                $this->textHandler(
-                    $state,
-                    $this->renderingContext->getErrorHandler()->handleParserError($error),
-                );
-            }
-            return;
-        }
-
         $expressionNode = null;
         foreach ($this->renderingContext->getExpressionNodeTypes() as $expressionNodeTypeClassName) {
             $detectionExpression = $expressionNodeTypeClassName::$detectionExpression;
@@ -816,6 +800,8 @@ class TemplateParser
             } elseif ($arrayPart->number !== null) {
                 // Note: this method of casting picks "int" when value is a natural number and "float" if any decimals are found. See also NumericNode.
                 $assignInto[$arrayKey] = $arrayPart->number + 0;
+            } elseif ($arrayPart->expressionValue !== null) {
+                $assignInto[$arrayKey] = $this->buildArgumentObjectTree($state, $arrayPart->expressionValue);
             } elseif ($arrayPart->quotedString !== null) {
                 $argumentString = $this->unquoteString($arrayPart->quotedString);
                 $assignInto[$arrayKey] = $this->buildArgumentObjectTree($state, $argumentString);

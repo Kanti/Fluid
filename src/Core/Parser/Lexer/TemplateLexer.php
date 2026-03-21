@@ -260,9 +260,13 @@ final class TemplateLexer implements TemplateLexerInterface
                 $cursor++;
                 if ($depth === 0) {
                     $source = substr($text, $offset, $cursor - $offset);
-                    $arrayToken = $this->createArrayTokenFromShorthand($source);
+                    $arrayToken = $this->createArrayTokenFromShorthand($source, $source);
                     if ($arrayToken instanceof TemplateToken) {
                         return $arrayToken;
+                    }
+                    $objectAccessorToken = $this->createObjectAccessorTokenFromShorthand($source, $source);
+                    if ($objectAccessorToken instanceof TemplateToken) {
+                        return $objectAccessorToken;
                     }
                     if (strlen($source) <= 2) {
                         return null;
@@ -296,10 +300,19 @@ final class TemplateLexer implements TemplateLexerInterface
                 $cursor += 3;
                 if ($depth === 0) {
                     $source = substr($text, $offset, $cursor - $offset);
+                    $normalizedSource = substr($source, 2, -2);
+                    $arrayToken = $this->createArrayTokenFromShorthand($source, $normalizedSource, true);
+                    if ($arrayToken instanceof TemplateToken) {
+                        return $arrayToken;
+                    }
+                    $objectAccessorToken = $this->createObjectAccessorTokenFromShorthand($source, $normalizedSource, true);
+                    if ($objectAccessorToken instanceof TemplateToken) {
+                        return $objectAccessorToken;
+                    }
                     if (strlen($source) <= 6) {
                         return null;
                     }
-                    return TemplateToken::shorthand($source, substr($source, 2, -2), true);
+                    return TemplateToken::shorthand($source, $normalizedSource, true);
                 }
                 continue;
             }
@@ -315,9 +328,9 @@ final class TemplateLexer implements TemplateLexerInterface
         return null;
     }
 
-    private function createArrayTokenFromShorthand(string $source): ?TemplateToken
+    private function createArrayTokenFromShorthand(string $source, string $normalizedSource, bool $insideCdata = false): ?TemplateToken
     {
-        $innerSource = trim(substr($source, 1, -1));
+        $innerSource = trim(substr($normalizedSource, 1, -1));
         if ($innerSource === '') {
             return TemplateToken::array($source, []);
         }
@@ -328,6 +341,238 @@ final class TemplateLexer implements TemplateLexerInterface
         }
 
         return TemplateToken::array($source, $arrayParts);
+    }
+
+    private function createObjectAccessorTokenFromShorthand(string $source, string $normalizedSource, bool $insideCdata = false): ?TemplateToken
+    {
+        $content = substr($normalizedSource, 1, -1);
+        if ($content !== trim($content)) {
+            return null;
+        }
+        $parsed = $this->parseShorthandObjectAccessor($content);
+        if ($parsed === null) {
+            return null;
+        }
+
+        return TemplateToken::objectAccessor(
+            $source,
+            $normalizedSource,
+            $parsed['objectAccessor'],
+            $parsed['inlineViewHelpers'],
+            $insideCdata,
+        );
+    }
+
+    /**
+     * @return array{objectAccessor: string, inlineViewHelpers: list<ShorthandInlineViewHelper>}|null
+     */
+    private function parseShorthandObjectAccessor(string $content): ?array
+    {
+        $content = trim($content);
+        $length = strlen($content);
+        if ($length === 0) {
+            return null;
+        }
+
+        $cursor = 0;
+        $objectAccessor = $this->parseObjectAccessorSegment($content, $cursor);
+        if ($cursor >= $length) {
+            return $objectAccessor === '' ? null : [
+                'objectAccessor' => $objectAccessor,
+                'inlineViewHelpers' => [],
+            ];
+        }
+
+        $separator = $this->parseViewHelperSeparator($content, $cursor);
+        if ($separator !== null) {
+            $inlineViewHelpers = $this->parseInlineViewHelperChain($content, $cursor);
+            if ($inlineViewHelpers === null || $cursor !== $length) {
+                return null;
+            }
+            return [
+                'objectAccessor' => $objectAccessor,
+                'inlineViewHelpers' => $inlineViewHelpers,
+            ];
+        }
+
+        $cursor = 0;
+        $inlineViewHelpers = $this->parseInlineViewHelperChain($content, $cursor);
+        if ($inlineViewHelpers === null || $cursor !== $length) {
+            return null;
+        }
+        return [
+            'objectAccessor' => '',
+            'inlineViewHelpers' => $inlineViewHelpers,
+        ];
+    }
+
+    private function parseObjectAccessorSegment(string $content, int &$cursor): string
+    {
+        $start = $cursor;
+        while (isset($content[$cursor])) {
+            if ($this->matchesViewHelperSeparator($content, $cursor)) {
+                break;
+            }
+
+            $character = $content[$cursor];
+            if (ctype_alnum($character) || $character === '_' || $character === '-' || $character === '.') {
+                $cursor++;
+                continue;
+            }
+
+            if ($character === '{') {
+                $cursor = $this->skipNestedBraces($content, $cursor);
+                continue;
+            }
+
+            break;
+        }
+
+        return trim(substr($content, $start, $cursor - $start));
+    }
+
+    /**
+     * @return list<ShorthandInlineViewHelper>|null
+     */
+    private function parseInlineViewHelperChain(string $content, int &$cursor): ?array
+    {
+        $inlineViewHelpers = [];
+        $viewHelper = $this->parseInlineViewHelper($content, $cursor);
+        if (!$viewHelper instanceof ShorthandInlineViewHelper) {
+            return null;
+        }
+        $inlineViewHelpers[] = $viewHelper;
+
+        while (($separator = $this->parseViewHelperSeparator($content, $cursor)) !== null) {
+            $viewHelper = $this->parseInlineViewHelper($content, $cursor);
+            if (!$viewHelper instanceof ShorthandInlineViewHelper) {
+                return null;
+            }
+            $inlineViewHelpers[] = $viewHelper;
+        }
+
+        return $inlineViewHelpers;
+    }
+
+    private function parseInlineViewHelper(string $content, int &$cursor): ?ShorthandInlineViewHelper
+    {
+        $namespaceIdentifier = $this->consumeWhile($content, $cursor, static fn(string $char): bool => self::isNamespaceCharacter($char));
+        if ($namespaceIdentifier === '' || !isset($content[$cursor]) || $content[$cursor] !== ':') {
+            return null;
+        }
+        $cursor++;
+
+        $methodIdentifier = $this->consumeWhile($content, $cursor, static fn(string $char): bool => self::isMethodCharacter($char));
+        if ($methodIdentifier === '' || !isset($content[$cursor]) || $content[$cursor] !== '(') {
+            return null;
+        }
+
+        $argumentString = $this->parseInlineViewHelperArgumentString($content, $cursor);
+        if ($argumentString === null) {
+            return null;
+        }
+
+        $arguments = trim($argumentString) === '' ? [] : $this->parseShorthandArrayParts($argumentString);
+        if (trim($argumentString) !== '' && $arguments === []) {
+            return null;
+        }
+
+        return new ShorthandInlineViewHelper($namespaceIdentifier, $methodIdentifier, $arguments);
+    }
+
+    private function parseInlineViewHelperArgumentString(string $content, int &$cursor): ?string
+    {
+        if (!isset($content[$cursor]) || $content[$cursor] !== '(') {
+            return null;
+        }
+
+        $start = $cursor + 1;
+        $depth = 1;
+        $cursor++;
+        while (isset($content[$cursor])) {
+            $character = $content[$cursor];
+            if ($character === '"' || $character === '\'') {
+                $cursor = $this->skipQuotedString($content, $cursor);
+                continue;
+            }
+            if ($character === '{') {
+                $cursor = $this->skipNestedBraces($content, $cursor);
+                continue;
+            }
+            if ($character === '(') {
+                $depth++;
+                $cursor++;
+                continue;
+            }
+            if ($character === ')') {
+                $depth--;
+                if ($depth === 0) {
+                    $argumentString = substr($content, $start, $cursor - $start);
+                    $cursor++;
+                    return $argumentString;
+                }
+                $cursor++;
+                continue;
+            }
+            $cursor++;
+        }
+
+        return null;
+    }
+
+    private function parseViewHelperSeparator(string $content, int &$cursor): ?string
+    {
+        $start = $cursor;
+        while (isset($content[$cursor]) && ctype_space($content[$cursor])) {
+            $cursor++;
+        }
+
+        if ($this->matchesViewHelperSeparator($content, $cursor)) {
+            $separator = substr($content, $cursor, $content[$cursor] === '|' ? 1 : 2);
+            $cursor += strlen($separator);
+            while (isset($content[$cursor]) && ctype_space($content[$cursor])) {
+                $cursor++;
+            }
+            return $separator;
+        }
+
+        $cursor = $start;
+        return null;
+    }
+
+    private function matchesViewHelperSeparator(string $content, int $cursor): bool
+    {
+        return ($content[$cursor] ?? null) === '|'
+            || substr($content, $cursor, 2) === '->';
+    }
+
+    private function skipNestedBraces(string $content, int $offset): int
+    {
+        $cursor = $offset + 1;
+        $depth = 1;
+        while (isset($content[$cursor])) {
+            $character = $content[$cursor];
+            if ($character === '"' || $character === '\'') {
+                $cursor = $this->skipQuotedString($content, $cursor);
+                continue;
+            }
+            if ($character === '{') {
+                $depth++;
+                $cursor++;
+                continue;
+            }
+            if ($character === '}') {
+                $depth--;
+                $cursor++;
+                if ($depth === 0) {
+                    return $cursor;
+                }
+                continue;
+            }
+            $cursor++;
+        }
+
+        return strlen($content);
     }
 
     /**
@@ -390,6 +635,11 @@ final class TemplateLexer implements TemplateLexerInterface
             return new ShorthandArrayPart($key, subarray: $subarray);
         }
 
+        $expressionValue = $this->parseNestedShorthandExpression($arrayText, $cursor);
+        if ($expressionValue !== null) {
+            return new ShorthandArrayPart($key, expressionValue: $expressionValue);
+        }
+
         $variableIdentifier = $this->parseShorthandVariableIdentifier($arrayText, $cursor);
         if ($variableIdentifier !== null) {
             return new ShorthandArrayPart($key, variableIdentifier: $variableIdentifier);
@@ -401,6 +651,22 @@ final class TemplateLexer implements TemplateLexerInterface
         }
 
         return null;
+    }
+
+    private function parseNestedShorthandExpression(string $arrayText, int &$cursor): ?string
+    {
+        if (($arrayText[$cursor] ?? null) !== '{') {
+            return null;
+        }
+
+        $start = $cursor;
+        $cursor = $this->skipNestedBraces($arrayText, $cursor);
+        if ($cursor <= $start + 1) {
+            $cursor = $start;
+            return null;
+        }
+
+        return substr($arrayText, $start, $cursor - $start);
     }
 
     private function parseShorthandArrayKey(string $arrayText, int &$cursor): ?string

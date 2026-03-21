@@ -13,6 +13,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\ShorthandArrayPart;
+use TYPO3Fluid\Fluid\Core\Parser\Lexer\ShorthandInlineViewHelper;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TagAttribute;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TemplateLexer;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TemplateToken;
@@ -71,7 +72,7 @@ final class TemplateLexerTest extends TestCase
                 'before {variable} after',
                 [
                     ['text', 'before ', 'before '],
-                    ['shorthand', '{variable}', '{variable}'],
+                    ['object_accessor', '{variable}', '{variable}'],
                     ['text', ' after', ' after'],
                 ],
             ],
@@ -79,7 +80,7 @@ final class TemplateLexerTest extends TestCase
                 'abc {f:if(condition: {value}, then: \'x\')} def',
                 [
                     ['text', 'abc ', 'abc '],
-                    ['shorthand', '{f:if(condition: {value}, then: \'x\')}', '{f:if(condition: {value}, then: \'x\')}'],
+                    ['object_accessor', '{f:if(condition: {value}, then: \'x\')}', '{f:if(condition: {value}, then: \'x\')}'],
                     ['text', ' def', ' def'],
                 ],
             ],
@@ -87,7 +88,7 @@ final class TemplateLexerTest extends TestCase
                 'abc {f:for(bla:"post{{")} def',
                 [
                     ['text', 'abc ', 'abc '],
-                    ['shorthand', '{f:for(bla:"post{{")}', '{f:for(bla:"post{{")}'],
+                    ['object_accessor', '{f:for(bla:"post{{")}', '{f:for(bla:"post{{")}'],
                     ['text', ' def', ' def'],
                 ],
             ],
@@ -101,7 +102,7 @@ final class TemplateLexerTest extends TestCase
                 'some <![CDATA[{{{content}}}]]> within',
                 [
                     ['text', 'some ', 'some '],
-                    ['shorthand', '{{{content}}}', '{content}'],
+                    ['object_accessor', '{{{content}}}', '{content}'],
                     ['text', ' within', ' within'],
                 ],
             ],
@@ -109,9 +110,43 @@ final class TemplateLexerTest extends TestCase
                 'x <![CDATA[{{{f:format.trim(value: \'{{{content}}}\')}}}]]> y',
                 [
                     ['text', 'x ', 'x '],
-                    ['shorthand', '{{{f:format.trim(value: \'{{{content}}}\')}}}', '{f:format.trim(value: \'{{{content}}}\')}'],
+                    ['object_accessor', '{{{f:format.trim(value: \'{{{content}}}\')}}}', '{f:format.trim(value: \'{{{content}}}\')}'],
                     ['text', ' y', ' y'],
                 ],
+            ],
+        ];
+    }
+
+    public static function objectAccessorTokenCases(): array
+    {
+        return [
+            'bare object accessor' => [
+                '{object.recursive}',
+                TemplateToken::objectAccessor('{object.recursive}', '{object.recursive}', 'object.recursive', []),
+            ],
+            'numeric prefixed object accessor' => [
+                '{123numericprefix}',
+                TemplateToken::objectAccessor('{123numericprefix}', '{123numericprefix}', '123numericprefix', []),
+            ],
+            'inline viewhelper only' => [
+                '{f:for(each: bla)}',
+                TemplateToken::objectAccessor('{f:for(each: bla)}', '{f:for(each: bla)}', '', [
+                    new ShorthandInlineViewHelper('f', 'for', [
+                        new ShorthandArrayPart('each', variableIdentifier: 'bla'),
+                    ]),
+                ]),
+            ],
+            'object accessor with chained inline viewhelpers' => [
+                '{bla.blubb->f:for(param:42)->foo.bar:bla(a:"b\\"->(f:a()", cd: {a:b})}',
+                TemplateToken::objectAccessor('{bla.blubb->f:for(param:42)->foo.bar:bla(a:"b\\"->(f:a()", cd: {a:b})}', '{bla.blubb->f:for(param:42)->foo.bar:bla(a:"b\\"->(f:a()", cd: {a:b})}', 'bla.blubb', [
+                    new ShorthandInlineViewHelper('f', 'for', [
+                        new ShorthandArrayPart('param', number: '42'),
+                    ]),
+                    new ShorthandInlineViewHelper('foo.bar', 'bla', [
+                        new ShorthandArrayPart('a', quotedString: '"b\\"->(f:a()"'),
+                        new ShorthandArrayPart('cd', subarray: 'a:b'),
+                    ]),
+                ]),
             ],
         ];
     }
@@ -258,6 +293,18 @@ final class TemplateLexerTest extends TestCase
             static fn(TemplateToken $token): array => [$token->type, $token->source, $token->normalizedSource],
             $tokens,
         ));
+    }
+
+    #[DataProvider('objectAccessorTokenCases')]
+    #[Test]
+    public function tokenizingObjectAccessorsReturnsStructuredTokens(string $input, TemplateToken $expected): void
+    {
+        $subject = new TemplateLexer();
+
+        $tokens = $subject->tokenize($input);
+
+        self::assertCount(1, $tokens);
+        self::assertEquals($expected, $tokens[0]);
     }
 
     #[DataProvider('shorthandArrayTokenCases')]

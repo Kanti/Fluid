@@ -17,5 +17,6 @@ final readonly class ShorthandArrayPart
         public ?string $variableIdentifier = null,
         public ?string $number = null,
         public ?string $subarray = null,
+        public ?string $expressionValue = null,
     ) {}
 }
