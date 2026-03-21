@@ -22,6 +22,10 @@ final readonly class TemplateToken
         public ?string $namespaceIdentifier = null,
         public ?string $methodIdentifier = null,
         public ?string $attributes = null,
+        /**
+         * @var list<TagAttribute>
+         */
+        public array $tagAttributes = [],
         public bool $selfClosing = false,
         public ?string $content = null,
     ) {}
@@ -36,6 +40,7 @@ final readonly class TemplateToken
         string $namespaceIdentifier,
         string $methodIdentifier,
         string $attributes,
+        array $tagAttributes,
         bool $selfClosing,
     ): self {
         return new self(
@@ -44,6 +49,7 @@ final readonly class TemplateToken
             $namespaceIdentifier,
             $methodIdentifier,
             $attributes,
+            $tagAttributes,
             $selfClosing,
         );
     }

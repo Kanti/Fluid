@@ -9,6 +9,7 @@ namespace TYPO3Fluid\Fluid\Core\Parser;
 
 use TYPO3Fluid\Fluid\Core\Compiler\StopCompilingException;
 use TYPO3Fluid\Fluid\Core\Compiler\UncompilableTemplateInterface;
+use TYPO3Fluid\Fluid\Core\Parser\Lexer\TagAttribute;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TemplateLexer;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TemplateLexerInterface;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TemplateToken;
@@ -259,7 +260,7 @@ class TemplateParser
                         $state,
                         $templateToken->namespaceIdentifier ?? '',
                         $templateToken->methodIdentifier ?? '',
-                        $templateToken->attributes ?? '',
+                        $templateToken->tagAttributes,
                         $templateToken->selfClosing,
                         $templateElement,
                     )) {
@@ -307,11 +308,11 @@ class TemplateParser
      * @param ParsingState $state Current parsing state
      * @param string $namespaceIdentifier Namespace identifier - being looked up in $this->namespaces
      * @param string $methodIdentifier Method identifier
-     * @param string $arguments Arguments string, not yet parsed
+     * @param list<TagAttribute> $arguments Parsed opening-tag attributes
      * @param bool $selfclosing true, if the tag is a self-closing tag.
      * @param string $templateElement The template code containing the ViewHelper call
      */
-    protected function openingViewHelperTagHandler(ParsingState $state, string $namespaceIdentifier, string $methodIdentifier, string $arguments, bool $selfclosing, string $templateElement): ?NodeInterface
+    protected function openingViewHelperTagHandler(ParsingState $state, string $namespaceIdentifier, string $methodIdentifier, array $arguments, bool $selfclosing, string $templateElement): ?NodeInterface
     {
         $viewHelperResolver = $this->renderingContext->getViewHelperResolver();
         if ($viewHelperResolver->isNamespaceIgnored($namespaceIdentifier)) {
@@ -540,33 +541,30 @@ class TemplateParser
      * Returns an associative array, where the key is the name of the argument,
      * and the value is a single Argument Object Tree.
      *
-     * @param string $argumentsString All arguments as string
+     * @param list<TagAttribute> $tagAttributes All parsed opening-tag attributes
      * @return array An associative array of objects, where the key is the argument name.
      */
-    protected function parseArguments(ParsingState $state, string $argumentsString, ViewHelperNode $viewHelperNode): array
+    protected function parseArguments(ParsingState $state, array $tagAttributes, ViewHelperNode $viewHelperNode): array
     {
         $argumentDefinitions = $viewHelperNode->getArgumentDefinitions();
         $argumentsObjectTree = [];
         $undeclaredArguments = [];
-        $matches = [];
-        if (preg_match_all(Patterns::$SPLIT_PATTERN_TAGARGUMENTS, $argumentsString, $matches, PREG_SET_ORDER) > 0) {
-            foreach ($matches as $singleMatch) {
-                $argument = $singleMatch['Argument'];
-                $value = $this->unquoteString($singleMatch['ValueQuoted']);
-                $escapingEnabledBackup = $this->escapingEnabled;
-                if (isset($argumentDefinitions[$argument])) {
-                    $argumentDefinition = $argumentDefinitions[$argument];
-                    $this->escapingEnabled = $this->escapingEnabled && $this->isArgumentEscaped($viewHelperNode->getUninitializedViewHelper(), $argumentDefinition);
-                    $argumentsObjectTree[$argument] = $this->buildArgumentObjectTree($state, $value);
-                    if ($argumentDefinition->isBooleanType()) {
-                        $argumentsObjectTree[$argument] = new BooleanNode($argumentsObjectTree[$argument]);
-                    }
-                } else {
-                    $this->escapingEnabled = false;
-                    $undeclaredArguments[$argument] = $this->buildArgumentObjectTree($state, $value);
+        foreach ($tagAttributes as $tagAttribute) {
+            $argument = $tagAttribute->name;
+            $value = $tagAttribute->value;
+            $escapingEnabledBackup = $this->escapingEnabled;
+            if (isset($argumentDefinitions[$argument])) {
+                $argumentDefinition = $argumentDefinitions[$argument];
+                $this->escapingEnabled = $this->escapingEnabled && $this->isArgumentEscaped($viewHelperNode->getUninitializedViewHelper(), $argumentDefinition);
+                $argumentsObjectTree[$argument] = $this->buildArgumentObjectTree($state, $value);
+                if ($argumentDefinition->isBooleanType()) {
+                    $argumentsObjectTree[$argument] = new BooleanNode($argumentsObjectTree[$argument]);
                 }
-                $this->escapingEnabled = $escapingEnabledBackup;
+            } else {
+                $this->escapingEnabled = false;
+                $undeclaredArguments[$argument] = $this->buildArgumentObjectTree($state, $value);
             }
+            $this->escapingEnabled = $escapingEnabledBackup;
         }
         $this->abortIfRequiredArgumentsAreMissing($argumentDefinitions, $argumentsObjectTree);
         $viewHelperNode->getUninitializedViewHelper()->validateAdditionalArguments($undeclaredArguments);

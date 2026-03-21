@@ -34,6 +34,7 @@ final class RegexTemplateLexer implements TemplateLexerInterface
                     $matchedVariables['NamespaceIdentifier'],
                     $matchedVariables['MethodIdentifier'],
                     $matchedVariables['Attributes'],
+                    $this->parseTagAttributes($matchedVariables['Attributes']),
                     $matchedVariables['Selfclosing'] !== '',
                 );
                 continue;
@@ -54,5 +55,38 @@ final class RegexTemplateLexer implements TemplateLexerInterface
         }
 
         return $tokens;
+    }
+
+    /**
+     * @return list<TagAttribute>
+     */
+    private function parseTagAttributes(string $attributes): array
+    {
+        $matches = [];
+        $result = [];
+        if (preg_match_all(Patterns::$SPLIT_PATTERN_TAGARGUMENTS, $attributes, $matches, PREG_SET_ORDER) > 0) {
+            foreach ($matches as $singleMatch) {
+                $result[] = new TagAttribute(
+                    $singleMatch['Argument'],
+                    $singleMatch['ValueQuoted'],
+                    $this->unquoteString($singleMatch['ValueQuoted']),
+                );
+            }
+        }
+        return $result;
+    }
+
+    private function unquoteString(string $quotedValue): string
+    {
+        $value = $quotedValue;
+        if ($value === '') {
+            return $value;
+        }
+        if ($quotedValue[0] === '"') {
+            $value = str_replace('\\"', '"', preg_replace('/(^"|"$)/', '', $quotedValue));
+        } elseif ($quotedValue[0] === '\'') {
+            $value = str_replace("\\'", "'", preg_replace('/(^\'|\'$)/', '', $quotedValue));
+        }
+        return str_replace('\\\\', '\\', $value);
     }
 }

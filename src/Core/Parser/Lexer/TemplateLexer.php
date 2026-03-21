@@ -114,6 +114,7 @@ final class TemplateLexer implements TemplateLexerInterface
 
         $attributesStart = null;
         $attributesEnd = $cursor;
+        $tagAttributes = [];
         while (true) {
             $whitespaceStart = $cursor;
             while (isset($templateSource[$cursor]) && ctype_space($templateSource[$cursor])) {
@@ -154,6 +155,7 @@ final class TemplateLexer implements TemplateLexerInterface
                 return null;
             }
 
+            $quotedValueStart = $cursor;
             $quote = $templateSource[$cursor];
             $cursor++;
             while (isset($templateSource[$cursor])) {
@@ -171,6 +173,12 @@ final class TemplateLexer implements TemplateLexerInterface
             if (!isset($templateSource[$cursor - 1]) || $templateSource[$cursor - 1] !== $quote) {
                 return null;
             }
+            $quotedValue = substr($templateSource, $quotedValueStart, $cursor - $quotedValueStart);
+            $tagAttributes[] = new TagAttribute(
+                $attributeName,
+                $quotedValue,
+                $this->unquoteString($quotedValue),
+            );
             $attributesEnd = $cursor;
         }
 
@@ -185,7 +193,7 @@ final class TemplateLexer implements TemplateLexerInterface
         }
 
         $source = substr($templateSource, $offset, $cursor + 1 - $offset);
-        return TemplateToken::openViewHelperTag($source, $namespaceIdentifier, $methodIdentifier, $attributes, $selfClosing);
+        return TemplateToken::openViewHelperTag($source, $namespaceIdentifier, $methodIdentifier, $attributes, $tagAttributes, $selfClosing);
     }
 
     private function consumeWhile(string $templateSource, int &$cursor, \Closure $matcher): string
@@ -210,5 +218,19 @@ final class TemplateLexer implements TemplateLexerInterface
     private static function isAttributeNameCharacter(string $char): bool
     {
         return ctype_alnum($char) || $char === ':' || $char === '-';
+    }
+
+    private function unquoteString(string $quotedValue): string
+    {
+        $value = $quotedValue;
+        if ($value === '') {
+            return $value;
+        }
+        if ($quotedValue[0] === '"') {
+            $value = str_replace('\\"', '"', preg_replace('/(^"|"$)/', '', $quotedValue));
+        } elseif ($quotedValue[0] === '\'') {
+            $value = str_replace("\\'", "'", preg_replace('/(^\'|\'$)/', '', $quotedValue));
+        }
+        return str_replace('\\\\', '\\', $value);
     }
 }

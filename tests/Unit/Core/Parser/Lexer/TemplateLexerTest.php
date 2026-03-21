@@ -13,6 +13,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\RegexTemplateLexer;
+use TYPO3Fluid\Fluid\Core\Parser\Lexer\TagAttribute;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TemplateLexer;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TemplateToken;
 
@@ -102,6 +103,11 @@ final class TemplateLexerTest extends TestCase
         self::assertSame('link.uriTo', $tokens[1]->methodIdentifier);
         self::assertSame(' complex:attribute="Ha>llo" a="b" c=\'d\'', $tokens[1]->attributes);
         self::assertTrue($tokens[1]->selfClosing);
+        self::assertEquals([
+            new TagAttribute('complex:attribute', '"Ha>llo"', 'Ha>llo'),
+            new TagAttribute('a', '"b"', 'b'),
+            new TagAttribute('c', '\'d\'', 'd'),
+        ], $tokens[1]->tagAttributes);
 
         self::assertSame(TemplateToken::TYPE_TEXT, $tokens[2]->type);
         self::assertSame('mid', $tokens[2]->source);
@@ -116,5 +122,35 @@ final class TemplateLexerTest extends TestCase
         self::assertSame(TemplateToken::TYPE_CLOSE_VIEWHELPER_TAG, $tokens[5]->type);
         self::assertSame('f', $tokens[5]->namespaceIdentifier);
         self::assertSame('link.uriTo', $tokens[5]->methodIdentifier);
+    }
+
+    #[Test]
+    public function tokenizingProvidesStructuredAttributesForQuotedValues(): void
+    {
+        $subject = new TemplateLexer();
+
+        $tokens = $subject->tokenize('<f:test data-foo="bar" single=\'baz\' plain="value" />');
+
+        self::assertCount(1, $tokens);
+        self::assertSame(TemplateToken::TYPE_OPEN_VIEWHELPER_TAG, $tokens[0]->type);
+        self::assertEquals([
+            new TagAttribute('data-foo', '"bar"', 'bar'),
+            new TagAttribute('single', '\'baz\'', 'baz'),
+            new TagAttribute('plain', '"value"', 'value'),
+        ], $tokens[0]->tagAttributes);
+    }
+
+    #[Test]
+    public function tokenizingProvidesStructuredAttributesWhenBackslashIsInsideAttributeValue(): void
+    {
+        $subject = new TemplateLexer();
+
+        $tokens = $subject->tokenize('<f:test escaped="a\\b" />');
+
+        self::assertCount(1, $tokens);
+        self::assertSame(TemplateToken::TYPE_OPEN_VIEWHELPER_TAG, $tokens[0]->type);
+        self::assertEquals([
+            new TagAttribute('escaped', '"a\\b"', 'a\b'),
+        ], $tokens[0]->tagAttributes);
     }
 }
