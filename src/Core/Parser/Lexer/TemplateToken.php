@@ -23,6 +23,7 @@ final readonly class TemplateToken
     public function __construct(
         public string $type,
         public string $source,
+        public int $lineNumber = 1,
         public ?string $namespaceIdentifier = null,
         public ?string $methodIdentifier = null,
         public ?string $attributes = null,
@@ -47,9 +48,13 @@ final readonly class TemplateToken
         public array $expressionMatches = [],
     ) {}
 
-    public static function text(string $source, bool $insideCdata = false): self
+    public static function text(
+        string $source,
+        bool $insideCdata = false,
+        int $lineNumber = 1,
+    ): self
     {
-        return new self(self::TYPE_TEXT, $source, normalizedSource: $source, insideCdata: $insideCdata);
+        return new self(self::TYPE_TEXT, $source, $lineNumber, normalizedSource: $source, insideCdata: $insideCdata);
     }
 
     public static function openViewHelperTag(
@@ -59,10 +64,12 @@ final readonly class TemplateToken
         string $attributes,
         array $tagAttributes,
         bool $selfClosing,
+        int $lineNumber = 1,
     ): self {
         return new self(
             self::TYPE_OPEN_VIEWHELPER_TAG,
             $source,
+            $lineNumber,
             $namespaceIdentifier,
             $methodIdentifier,
             $attributes,
@@ -76,32 +83,47 @@ final readonly class TemplateToken
         string $source,
         string $namespaceIdentifier,
         string $methodIdentifier,
+        int $lineNumber = 1,
     ): self {
         return new self(
             self::TYPE_CLOSE_VIEWHELPER_TAG,
             $source,
+            $lineNumber,
             $namespaceIdentifier,
             $methodIdentifier,
             normalizedSource: $source,
         );
     }
 
-    public static function cdata(string $source, string $content): self
+    public static function cdata(
+        string $source,
+        string $content,
+        int $lineNumber = 1,
+    ): self
     {
-        return new self(self::TYPE_CDATA, $source, content: $content, normalizedSource: $source);
+        return new self(self::TYPE_CDATA, $source, $lineNumber, content: $content, normalizedSource: $source);
     }
 
-    public static function shorthand(string $source, string $normalizedSource, bool $insideCdata = false): self
+    public static function shorthand(
+        string $source,
+        string $normalizedSource,
+        bool $insideCdata = false,
+        int $lineNumber = 1,
+    ): self
     {
-        return new self(self::TYPE_SHORTHAND, $source, normalizedSource: $normalizedSource, insideCdata: $insideCdata);
+        return new self(self::TYPE_SHORTHAND, $source, $lineNumber, normalizedSource: $normalizedSource, insideCdata: $insideCdata);
     }
 
     /**
      * @param list<ShorthandArrayPart> $arrayParts
      */
-    public static function array(string $source, array $arrayParts): self
+    public static function array(
+        string $source,
+        array $arrayParts,
+        int $lineNumber = 1,
+    ): self
     {
-        return new self(self::TYPE_ARRAY, $source, normalizedSource: $source, arrayParts: $arrayParts);
+        return new self(self::TYPE_ARRAY, $source, $lineNumber, normalizedSource: $source, arrayParts: $arrayParts);
     }
 
     /**
@@ -113,10 +135,12 @@ final readonly class TemplateToken
         string $objectAccessor,
         array $inlineViewHelpers,
         bool $insideCdata = false,
+        int $lineNumber = 1,
     ): self {
         return new self(
             self::TYPE_OBJECT_ACCESSOR,
             $source,
+            $lineNumber,
             normalizedSource: $normalizedSource,
             insideCdata: $insideCdata,
             objectAccessor: $objectAccessor,
@@ -130,10 +154,12 @@ final readonly class TemplateToken
         string $expressionNodeType,
         array $expressionMatches,
         bool $insideCdata = false,
+        int $lineNumber = 1,
     ): self {
         return new self(
             self::TYPE_EXPRESSION,
             $source,
+            $lineNumber,
             normalizedSource: $normalizedSource,
             insideCdata: $insideCdata,
             expressionNodeType: $expressionNodeType,

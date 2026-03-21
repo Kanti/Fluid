@@ -16,6 +16,11 @@ use TYPO3Fluid\Fluid\Core\Parser\SyntaxTree\Expression\TernaryExpressionNode;
 final class TemplateLexer implements TemplateLexerInterface
 {
     private const SHORTHAND_IDENTIFIER_CHARACTERS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-';
+    private const NAMESPACE_CHARACTERS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.';
+    private const METHOD_CHARACTERS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.';
+    private const ATTRIBUTE_NAME_CHARACTERS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:-';
+    private const CDATA_PREFIX = '<![CDATA[';
+    private const CDATA_SUFFIX = ']]>';
 
     public function tokenize(string $templateSource): array
     {
@@ -32,11 +37,19 @@ final class TemplateLexer implements TemplateLexerInterface
 
                 if ($token instanceof TemplateToken) {
                     if ($cursor > $textStart) {
-                        array_push($tokens, ...$this->tokenizeTextSegment(substr($templateSource, $textStart, $cursor - $textStart), false));
+                        array_push($tokens, ...$this->tokenizeTextRange($templateSource, $textStart, $cursor, false));
                     }
 
                     if ($token->type === TemplateToken::TYPE_CDATA) {
-                        array_push($tokens, ...$this->tokenizeTextSegment($token->content ?? '', true));
+                        array_push(
+                            $tokens,
+                            ...$this->tokenizeTextRange(
+                                $templateSource,
+                                $cursor + strlen(self::CDATA_PREFIX),
+                                $cursor + strlen($token->source) - strlen(self::CDATA_SUFFIX),
+                                true,
+                            ),
+                        );
                     } else {
                         $tokens[] = $token;
                     }
@@ -51,7 +64,7 @@ final class TemplateLexer implements TemplateLexerInterface
         }
 
         if ($textStart < $sourceLength) {
-            array_push($tokens, ...$this->tokenizeTextSegment(substr($templateSource, $textStart), false));
+            array_push($tokens, ...$this->tokenizeTextRange($templateSource, $textStart, $sourceLength, false));
         }
 
         return $tokens;
@@ -60,17 +73,16 @@ final class TemplateLexer implements TemplateLexerInterface
     /**
      * @return list<TemplateToken>
      */
-    private function tokenizeTextSegment(string $text, bool $insideCdata): array
+    private function tokenizeTextRange(string $templateSource, int $start, int $end, bool $insideCdata): array
     {
         $tokens = [];
-        $cursor = 0;
-        $textStart = 0;
-        $length = strlen($text);
+        $cursor = $start;
+        $textStart = $start;
 
-        while ($cursor < $length) {
+        while ($cursor < $end) {
             $token = $insideCdata
-                ? $this->scanCdataShorthand($text, $cursor)
-                : $this->scanShorthand($text, $cursor);
+                ? $this->scanCdataShorthand($templateSource, $cursor, $end)
+                : $this->scanShorthand($templateSource, $cursor, $end);
 
             if (!$token instanceof TemplateToken) {
                 $cursor++;
@@ -78,50 +90,63 @@ final class TemplateLexer implements TemplateLexerInterface
             }
 
             if ($cursor > $textStart) {
-                $tokens[] = TemplateToken::text(substr($text, $textStart, $cursor - $textStart), $insideCdata);
-            }
-            $tokens[] = $token;
-            $cursor += strlen($token->source);
-            $textStart = $cursor;
+            $tokens[] = $this->createTextToken($templateSource, $textStart, $cursor, $insideCdata);
         }
+        $tokens[] = $token;
+        $cursor += strlen($token->source);
+        $textStart = $cursor;
+    }
 
-        if ($textStart < $length) {
-            $tokens[] = TemplateToken::text(substr($text, $textStart), $insideCdata);
+        if ($textStart < $end) {
+            $tokens[] = $this->createTextToken($templateSource, $textStart, $end, $insideCdata);
         }
 
         return $tokens;
     }
 
+    private function createTextToken(string $templateSource, int $start, int $end, bool $insideCdata): TemplateToken
+    {
+        return TemplateToken::text(
+            $this->sliceSource($templateSource, $start, $end),
+            $insideCdata,
+            $this->lineNumberAt($templateSource, $start),
+        );
+    }
+
     private function scanCdata(string $templateSource, int $offset): ?TemplateToken
     {
-        $prefix = '<![CDATA[';
-        if (!str_starts_with(substr($templateSource, $offset), $prefix)) {
+        if (substr_compare($templateSource, self::CDATA_PREFIX, $offset, strlen(self::CDATA_PREFIX)) !== 0) {
             return null;
         }
 
-        $endPosition = strpos($templateSource, ']]>', $offset + strlen($prefix));
+        $endPosition = strpos($templateSource, ']]>', $offset + strlen(self::CDATA_PREFIX));
         if ($endPosition === false) {
             return null;
         }
 
-        $source = substr($templateSource, $offset, $endPosition + 3 - $offset);
-        return TemplateToken::cdata($source, substr($source, strlen($prefix), -3));
+        $end = $endPosition + strlen(self::CDATA_SUFFIX);
+        $source = $this->sliceSource($templateSource, $offset, $end);
+        return TemplateToken::cdata(
+            $source,
+            substr($source, strlen(self::CDATA_PREFIX), -3),
+            $this->lineNumberAt($templateSource, $offset),
+        );
     }
 
     private function scanClosingViewHelperTag(string $templateSource, int $offset): ?TemplateToken
     {
-        if (!str_starts_with(substr($templateSource, $offset), '</')) {
+        if (($templateSource[$offset] ?? null) !== '<' || ($templateSource[$offset + 1] ?? null) !== '/') {
             return null;
         }
 
         $cursor = $offset + 2;
-        $namespaceIdentifier = $this->consumeWhile($templateSource, $cursor, static fn(string $char): bool => self::isNamespaceCharacter($char));
+        $namespaceIdentifier = $this->consumeSpan($templateSource, $cursor, self::NAMESPACE_CHARACTERS);
         if (!isset($templateSource[$cursor]) || $templateSource[$cursor] !== ':') {
             return null;
         }
         $cursor++;
 
-        $methodIdentifier = $this->consumeWhile($templateSource, $cursor, static fn(string $char): bool => self::isMethodCharacter($char));
+        $methodIdentifier = $this->consumeSpan($templateSource, $cursor, self::METHOD_CHARACTERS);
         if ($methodIdentifier === '') {
             return null;
         }
@@ -134,8 +159,13 @@ final class TemplateLexer implements TemplateLexerInterface
             return null;
         }
 
-        $source = substr($templateSource, $offset, $cursor + 1 - $offset);
-        return TemplateToken::closeViewHelperTag($source, $namespaceIdentifier, $methodIdentifier);
+        $source = $this->sliceSource($templateSource, $offset, $cursor + 1);
+        return TemplateToken::closeViewHelperTag(
+            $source,
+            $namespaceIdentifier,
+            $methodIdentifier,
+            $this->lineNumberAt($templateSource, $offset),
+        );
     }
 
     private function scanOpeningViewHelperTag(string $templateSource, int $offset): ?TemplateToken
@@ -145,88 +175,128 @@ final class TemplateLexer implements TemplateLexerInterface
         }
 
         $cursor = $offset + 1;
-        $namespaceIdentifier = $this->consumeWhile($templateSource, $cursor, static fn(string $char): bool => self::isNamespaceCharacter($char));
+        $identifier = $this->parseViewHelperIdentifier($templateSource, $cursor);
+        if ($identifier === null) {
+            return null;
+        }
+
+        $attributes = $this->parseTagAttributes($templateSource, $cursor);
+        if ($attributes === null) {
+            return null;
+        }
+
+        return $this->createOpeningTagToken($templateSource, $offset, $cursor, $identifier, $attributes);
+    }
+
+    /**
+     * @return array{namespaceIdentifier: string, methodIdentifier: string}|null
+     */
+    private function parseViewHelperIdentifier(string $templateSource, int &$cursor): ?array
+    {
+        $namespaceIdentifier = $this->consumeSpan($templateSource, $cursor, self::NAMESPACE_CHARACTERS);
         if (!isset($templateSource[$cursor]) || $templateSource[$cursor] !== ':') {
             return null;
         }
         $cursor++;
 
-        $methodIdentifier = $this->consumeWhile($templateSource, $cursor, static fn(string $char): bool => self::isMethodCharacter($char));
+        $methodIdentifier = $this->consumeSpan($templateSource, $cursor, self::METHOD_CHARACTERS);
         if ($methodIdentifier === '') {
             return null;
         }
 
+        return [
+            'namespaceIdentifier' => $namespaceIdentifier,
+            'methodIdentifier' => $methodIdentifier,
+        ];
+    }
+
+    /**
+     * @return array{attributes: string, tagAttributes: list<TagAttribute>}|null
+     */
+    private function parseTagAttributes(string $templateSource, int &$cursor): ?array
+    {
         $attributesStart = null;
         $attributesEnd = $cursor;
         $tagAttributes = [];
+
         while (true) {
             $whitespaceStart = $cursor;
-            while (isset($templateSource[$cursor]) && ctype_space($templateSource[$cursor])) {
-                $cursor++;
-            }
+            $this->skipWhitespace($templateSource, $cursor);
 
             if (!isset($templateSource[$cursor])) {
                 return null;
             }
 
-            if ($templateSource[$cursor] === '/' || $templateSource[$cursor] === '>') {
+            if ($this->isTagEndCharacter($templateSource[$cursor])) {
                 if ($attributesStart !== null) {
                     $attributesEnd = $cursor;
                 }
                 break;
             }
+
             if ($attributesStart === null) {
                 $attributesStart = $whitespaceStart;
             }
 
-            $attributeName = $this->consumeWhile($templateSource, $cursor, static fn(string $char): bool => self::isAttributeNameCharacter($char));
-            if ($attributeName === '') {
+            $tagAttribute = $this->parseTagAttribute($templateSource, $cursor);
+            if (!$tagAttribute instanceof TagAttribute) {
                 return null;
             }
 
-            while (isset($templateSource[$cursor]) && ctype_space($templateSource[$cursor])) {
-                $cursor++;
-            }
-            if (!isset($templateSource[$cursor]) || $templateSource[$cursor] !== '=') {
-                return null;
-            }
-            $cursor++;
-
-            while (isset($templateSource[$cursor]) && ctype_space($templateSource[$cursor])) {
-                $cursor++;
-            }
-            if (!isset($templateSource[$cursor]) || ($templateSource[$cursor] !== '"' && $templateSource[$cursor] !== '\'')) {
-                return null;
-            }
-
-            $quotedValueStart = $cursor;
-            $quote = $templateSource[$cursor];
-            $cursor++;
-            while (isset($templateSource[$cursor])) {
-                if ($templateSource[$cursor] === '\\') {
-                    $cursor += 2;
-                    continue;
-                }
-                if ($templateSource[$cursor] === $quote) {
-                    $cursor++;
-                    break;
-                }
-                $cursor++;
-            }
-
-            if (!isset($templateSource[$cursor - 1]) || $templateSource[$cursor - 1] !== $quote) {
-                return null;
-            }
-            $quotedValue = substr($templateSource, $quotedValueStart, $cursor - $quotedValueStart);
-            $tagAttributes[] = new TagAttribute(
-                $attributeName,
-                $quotedValue,
-                $this->unquoteStringValue($quotedValue),
-            );
+            $tagAttributes[] = $tagAttribute;
             $attributesEnd = $cursor;
         }
 
-        $attributes = $attributesStart === null ? '' : substr($templateSource, $attributesStart, $attributesEnd - $attributesStart);
+        return [
+            'attributes' => $attributesStart === null ? '' : $this->sliceSource($templateSource, $attributesStart, $attributesEnd),
+            'tagAttributes' => $tagAttributes,
+        ];
+    }
+
+    private function parseTagAttribute(string $templateSource, int &$cursor): ?TagAttribute
+    {
+        $attributeName = $this->consumeSpan($templateSource, $cursor, self::ATTRIBUTE_NAME_CHARACTERS);
+        if ($attributeName === '') {
+            return null;
+        }
+
+        $this->skipWhitespace($templateSource, $cursor);
+        if (!isset($templateSource[$cursor]) || $templateSource[$cursor] !== '=') {
+            return null;
+        }
+        $cursor++;
+
+        $this->skipWhitespace($templateSource, $cursor);
+        $quotedValue = $this->parseQuotedAttributeValue($templateSource, $cursor);
+        if ($quotedValue === null) {
+            return null;
+        }
+
+        return new TagAttribute(
+            $attributeName,
+            $quotedValue,
+            $this->unquoteStringValue($quotedValue),
+        );
+    }
+
+    private function parseQuotedAttributeValue(string $templateSource, int &$cursor): ?string
+    {
+        $quotedValueStart = $cursor;
+        $quotedValue = $this->parseQuotedString($templateSource, $cursor);
+        if ($quotedValue === null) {
+            $cursor = $quotedValueStart;
+            return null;
+        }
+
+        return $quotedValue;
+    }
+
+    /**
+     * @param array{namespaceIdentifier: string, methodIdentifier: string} $identifier
+     * @param array{attributes: string, tagAttributes: list<TagAttribute>} $attributes
+     */
+    private function createOpeningTagToken(string $templateSource, int $offset, int &$cursor, array $identifier, array $attributes): ?TemplateToken
+    {
         $selfClosing = false;
         if ($templateSource[$cursor] === '/') {
             $selfClosing = true;
@@ -236,51 +306,83 @@ final class TemplateLexer implements TemplateLexerInterface
             return null;
         }
 
-        $source = substr($templateSource, $offset, $cursor + 1 - $offset);
-        return TemplateToken::openViewHelperTag($source, $namespaceIdentifier, $methodIdentifier, $attributes, $tagAttributes, $selfClosing);
+        $source = $this->sliceSource($templateSource, $offset, $cursor + 1);
+        return TemplateToken::openViewHelperTag(
+            $source,
+            $identifier['namespaceIdentifier'],
+            $identifier['methodIdentifier'],
+            $attributes['attributes'],
+            $attributes['tagAttributes'],
+            $selfClosing,
+            $this->lineNumberAt($templateSource, $offset),
+        );
     }
 
-    private function scanShorthand(string $text, int $offset): ?TemplateToken
+    private function isTagEndCharacter(string $character): bool
     {
-        if (!isset($text[$offset]) || $text[$offset] !== '{') {
+        return $character === '/' || $character === '>';
+    }
+
+    private function scanShorthand(string $templateSource, int $offset, int $end): ?TemplateToken
+    {
+        return $this->scanBalancedShorthand($templateSource, $offset, $end, '{', '}', false);
+    }
+
+    private function scanCdataShorthand(string $templateSource, int $offset, int $end): ?TemplateToken
+    {
+        return $this->scanBalancedShorthand($templateSource, $offset, $end, '{{{', '}}}', true);
+    }
+
+    private function scanBalancedShorthand(
+        string $templateSource,
+        int $offset,
+        int $end,
+        string $openingDelimiter,
+        string $closingDelimiter,
+        bool $insideCdata,
+    ): ?TemplateToken
+    {
+        $openingLength = strlen($openingDelimiter);
+        $closingLength = strlen($closingDelimiter);
+        if (substr_compare($templateSource, $openingDelimiter, $offset, $openingLength) !== 0) {
             return null;
         }
 
-        $cursor = $offset + 1;
+        $cursor = $offset + $openingLength;
         $depth = 1;
-        while (isset($text[$cursor])) {
-            $character = $text[$cursor];
-            if ($character === '"' || $character === '\'') {
-                $cursor = $this->skipQuotedString($text, $cursor);
+        while ($cursor < $end) {
+            if (
+                $openingLength === 3
+                && $cursor + 3 <= $end
+                && substr_compare($templateSource, $openingDelimiter, $cursor, 3) === 0
+            ) {
+                $depth++;
+                $cursor += 3;
                 continue;
             }
-            if ($character === '{') {
+            if (
+                $cursor + $closingLength <= $end
+                && substr_compare($templateSource, $closingDelimiter, $cursor, $closingLength) === 0
+            ) {
+                $depth--;
+                $cursor += $closingLength;
+                if ($depth === 0) {
+                    $source = $this->sliceSource($templateSource, $offset, $cursor);
+                    $normalizedSource = $insideCdata ? substr($source, 2, -2) : $source;
+                    return $this->classifyShorthandToken($templateSource, $source, $normalizedSource, $insideCdata, $offset, $cursor);
+                }
+                continue;
+            }
+
+            $character = $templateSource[$cursor];
+            if ($character === '"' || $character === '\'') {
+                $cursor = $this->skipQuotedString($templateSource, $cursor);
+                continue;
+            }
+
+            if (!$insideCdata && $character === '{') {
                 $depth++;
                 $cursor++;
-                continue;
-            }
-            if ($character === '}') {
-                $depth--;
-                $cursor++;
-                if ($depth === 0) {
-                    $source = substr($text, $offset, $cursor - $offset);
-                    $arrayToken = $this->createArrayTokenFromShorthand($source, $source);
-                    if ($arrayToken instanceof TemplateToken) {
-                        return $arrayToken;
-                    }
-                    $objectAccessorToken = $this->createObjectAccessorTokenFromShorthand($source, $source);
-                    if ($objectAccessorToken instanceof TemplateToken) {
-                        return $objectAccessorToken;
-                    }
-                    $expressionToken = $this->createExpressionTokenFromShorthand($source, $source);
-                    if ($expressionToken instanceof TemplateToken) {
-                        return $expressionToken;
-                    }
-                    if (strlen($source) <= 2) {
-                        return null;
-                    }
-                    return TemplateToken::shorthand($source, $source, false);
-                }
                 continue;
             }
             $cursor++;
@@ -289,62 +391,34 @@ final class TemplateLexer implements TemplateLexerInterface
         return null;
     }
 
-    private function scanCdataShorthand(string $text, int $offset): ?TemplateToken
+    private function classifyShorthandToken(string $templateSource, string $source, string $normalizedSource, bool $insideCdata, int $start, int $end): ?TemplateToken
     {
-        if (substr($text, $offset, 3) !== '{{{') {
+        $lineNumber = $this->lineNumberAt($templateSource, $start);
+
+        $token = $this->tryCreateArrayToken($source, $normalizedSource, $insideCdata, $lineNumber)
+            ?? $this->tryCreateObjectAccessorToken($source, $normalizedSource, $insideCdata, $lineNumber)
+            ?? $this->tryCreateExpressionToken($source, $normalizedSource, $insideCdata, $lineNumber);
+        if ($token instanceof TemplateToken) {
+            return $token;
+        }
+
+        if ($this->isEmptyShorthand($source, $insideCdata)) {
             return null;
         }
 
-        $cursor = $offset + 3;
-        $depth = 1;
-        while (isset($text[$cursor])) {
-            if (substr($text, $cursor, 3) === '{{{') {
-                $depth++;
-                $cursor += 3;
-                continue;
-            }
-            if (substr($text, $cursor, 3) === '}}}') {
-                $depth--;
-                $cursor += 3;
-                if ($depth === 0) {
-                    $source = substr($text, $offset, $cursor - $offset);
-                    $normalizedSource = substr($source, 2, -2);
-                    $arrayToken = $this->createArrayTokenFromShorthand($source, $normalizedSource, true);
-                    if ($arrayToken instanceof TemplateToken) {
-                        return $arrayToken;
-                    }
-                    $objectAccessorToken = $this->createObjectAccessorTokenFromShorthand($source, $normalizedSource, true);
-                    if ($objectAccessorToken instanceof TemplateToken) {
-                        return $objectAccessorToken;
-                    }
-                    $expressionToken = $this->createExpressionTokenFromShorthand($source, $normalizedSource, true);
-                    if ($expressionToken instanceof TemplateToken) {
-                        return $expressionToken;
-                    }
-                    if (strlen($source) <= 6) {
-                        return null;
-                    }
-                    return TemplateToken::shorthand($source, $normalizedSource, true);
-                }
-                continue;
-            }
-
-            $character = $text[$cursor];
-            if ($character === '"' || $character === '\'') {
-                $cursor = $this->skipQuotedString($text, $cursor);
-                continue;
-            }
-            $cursor++;
-        }
-
-        return null;
+        return TemplateToken::shorthand($source, $normalizedSource, $insideCdata, $lineNumber);
     }
 
-    private function createArrayTokenFromShorthand(string $source, string $normalizedSource, bool $insideCdata = false): ?TemplateToken
+    private function isEmptyShorthand(string $source, bool $insideCdata): bool
+    {
+        return strlen($source) <= ($insideCdata ? 6 : 2);
+    }
+
+    private function tryCreateArrayToken(string $source, string $normalizedSource, bool $insideCdata = false, int $lineNumber = 1): ?TemplateToken
     {
         $innerSource = trim(substr($normalizedSource, 1, -1));
         if ($innerSource === '') {
-            return TemplateToken::array($source, []);
+            return TemplateToken::array($source, [], $lineNumber);
         }
 
         $arrayParts = $this->parseShorthandArrayParts($innerSource);
@@ -352,10 +426,10 @@ final class TemplateLexer implements TemplateLexerInterface
             return null;
         }
 
-        return TemplateToken::array($source, $arrayParts);
+        return TemplateToken::array($source, $arrayParts, $lineNumber);
     }
 
-    private function createObjectAccessorTokenFromShorthand(string $source, string $normalizedSource, bool $insideCdata = false): ?TemplateToken
+    private function tryCreateObjectAccessorToken(string $source, string $normalizedSource, bool $insideCdata = false, int $lineNumber = 1): ?TemplateToken
     {
         $content = substr($normalizedSource, 1, -1);
         if ($content !== trim($content)) {
@@ -372,10 +446,11 @@ final class TemplateLexer implements TemplateLexerInterface
             $parsed['objectAccessor'],
             $parsed['inlineViewHelpers'],
             $insideCdata,
+            $lineNumber,
         );
     }
 
-    private function createExpressionTokenFromShorthand(string $source, string $normalizedSource, bool $insideCdata = false): ?TemplateToken
+    private function tryCreateExpressionToken(string $source, string $normalizedSource, bool $insideCdata = false, int $lineNumber = 1): ?TemplateToken
     {
         $expressionNodeType = $this->detectExpressionNodeType($normalizedSource);
         if ($expressionNodeType === null) {
@@ -391,6 +466,7 @@ final class TemplateLexer implements TemplateLexerInterface
                 1 => $normalizedSource,
             ],
             $insideCdata,
+            $lineNumber,
         );
     }
 
@@ -730,13 +806,13 @@ final class TemplateLexer implements TemplateLexerInterface
 
     private function parseInlineViewHelper(string $content, int &$cursor): ?ShorthandInlineViewHelper
     {
-        $namespaceIdentifier = $this->consumeWhile($content, $cursor, static fn(string $char): bool => self::isNamespaceCharacter($char));
+        $namespaceIdentifier = $this->consumeSpan($content, $cursor, self::NAMESPACE_CHARACTERS);
         if ($namespaceIdentifier === '' || !isset($content[$cursor]) || $content[$cursor] !== ':') {
             return null;
         }
         $cursor++;
 
-        $methodIdentifier = $this->consumeWhile($content, $cursor, static fn(string $char): bool => self::isMethodCharacter($char));
+        $methodIdentifier = $this->consumeSpan($content, $cursor, self::METHOD_CHARACTERS);
         if ($methodIdentifier === '' || !isset($content[$cursor]) || $content[$cursor] !== '(') {
             return null;
         }
@@ -1052,13 +1128,16 @@ final class TemplateLexer implements TemplateLexerInterface
         return substr($arrayText, $start, $cursor - $start);
     }
 
-    private function consumeWhile(string $templateSource, int &$cursor, \Closure $matcher): string
+    private function consumeSpan(string $input, int &$cursor, string $allowedCharacters): string
     {
-        $start = $cursor;
-        while (isset($templateSource[$cursor]) && $matcher($templateSource[$cursor])) {
-            $cursor++;
+        $length = strspn($input, $allowedCharacters, $cursor);
+        if ($length === 0) {
+            return '';
         }
-        return substr($templateSource, $start, $cursor - $start);
+
+        $span = substr($input, $cursor, $length);
+        $cursor += $length;
+        return $span;
     }
 
     private function parseQuotedString(string $input, int &$cursor): ?string
@@ -1119,16 +1198,40 @@ final class TemplateLexer implements TemplateLexerInterface
 
     private function unquoteStringValue(string $quotedValue): string
     {
+        if ($quotedValue === '') {
+            return '';
+        }
+
         $value = $quotedValue;
-        if ($value === '') {
-            return $value;
+        $lastCharacter = $quotedValue[strlen($quotedValue) - 1];
+        if (
+            ($quotedValue[0] === '"' && $lastCharacter === '"')
+            || ($quotedValue[0] === '\'' && $lastCharacter === '\'')
+        ) {
+            $value = substr($quotedValue, 1, -1);
         }
+
         if ($quotedValue[0] === '"') {
-            $value = str_replace('\\"', '"', preg_replace('/(^"|"$)/', '', $quotedValue));
+            $value = str_replace('\\"', '"', $value);
         } elseif ($quotedValue[0] === '\'') {
-            $value = str_replace("\\'", "'", preg_replace('/(^\'|\'$)/', '', $quotedValue));
+            $value = str_replace("\\'", "'", $value);
         }
+
         return str_replace('\\\\', '\\', $value);
+    }
+
+    private function sliceSource(string $templateSource, int $start, int $end): string
+    {
+        return substr($templateSource, $start, $end - $start);
+    }
+
+    private function lineNumberAt(string $templateSource, int $offset): int
+    {
+        if ($offset <= 0) {
+            return 1;
+        }
+
+        return substr_count(substr($templateSource, 0, $offset), PHP_EOL) + 1;
     }
 
     private static function isNamespaceCharacter(string $char): bool
