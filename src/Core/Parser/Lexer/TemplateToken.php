@@ -16,6 +16,7 @@ final readonly class TemplateToken
     public const TYPE_CLOSE_VIEWHELPER_TAG = 'close_viewhelper_tag';
     public const TYPE_CDATA = 'cdata';
     public const TYPE_SHORTHAND = 'shorthand';
+    public const TYPE_ARRAY = 'array';
 
     public function __construct(
         public string $type,
@@ -31,6 +32,10 @@ final readonly class TemplateToken
         public ?string $content = null,
         public ?string $normalizedSource = null,
         public bool $insideCdata = false,
+        /**
+         * @var list<ShorthandArrayPart>
+         */
+        public array $arrayParts = [],
     ) {}
 
     public static function text(string $source, bool $insideCdata = false): self
@@ -80,5 +85,13 @@ final readonly class TemplateToken
     public static function shorthand(string $source, string $normalizedSource, bool $insideCdata = false): self
     {
         return new self(self::TYPE_SHORTHAND, $source, normalizedSource: $normalizedSource, insideCdata: $insideCdata);
+    }
+
+    /**
+     * @param list<ShorthandArrayPart> $arrayParts
+     */
+    public static function array(string $source, array $arrayParts): self
+    {
+        return new self(self::TYPE_ARRAY, $source, normalizedSource: $source, arrayParts: $arrayParts);
     }
 }

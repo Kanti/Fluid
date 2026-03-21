@@ -12,6 +12,7 @@ namespace TYPO3Fluid\Fluid\Tests\Unit\Core\Parser\Lexer;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use TYPO3Fluid\Fluid\Core\Parser\Lexer\ShorthandArrayPart;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TagAttribute;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TemplateLexer;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TemplateToken;
@@ -112,6 +113,44 @@ final class TemplateLexerTest extends TestCase
                     ['text', ' y', ' y'],
                 ],
             ],
+        ];
+    }
+
+    public static function shorthandArrayTokenCases(): array
+    {
+        return [
+            'nested array parts' => [
+                '{a: b, e: {c:d, "e#":f, \'g\': "h"}}',
+                TemplateToken::array('{a: b, e: {c:d, "e#":f, \'g\': "h"}}', [
+                    new ShorthandArrayPart('a', variableIdentifier: 'b'),
+                    new ShorthandArrayPart('e', subarray: 'c:d, "e#":f, \'g\': "h"'),
+                ]),
+            ],
+            'quoted keys and digits' => [
+                '{"a": b, foo6: 66, -5foo: -5bar}',
+                TemplateToken::array('{"a": b, foo6: 66, -5foo: -5bar}', [
+                    new ShorthandArrayPart('"a"', variableIdentifier: 'b'),
+                    new ShorthandArrayPart('foo6', number: '66'),
+                    new ShorthandArrayPart('-5foo', variableIdentifier: '-5bar'),
+                ]),
+            ],
+            'whitespace separated inline viewhelper arguments' => [
+                '{partial="Structures" section="ValidSection"}',
+                TemplateToken::array('{partial="Structures" section="ValidSection"}', [
+                    new ShorthandArrayPart('partial', quotedString: '"Structures"'),
+                    new ShorthandArrayPart('section', quotedString: '"ValidSection"'),
+                ]),
+            ],
+        ];
+    }
+
+    public static function invalidArrayCases(): array
+    {
+        return [
+            ['{"a\': b}'],
+            ['{"": "bar"}'],
+            ['{\'\': "bar"}'],
+            ['{foo:}'],
         ];
     }
 
@@ -219,5 +258,28 @@ final class TemplateLexerTest extends TestCase
             static fn(TemplateToken $token): array => [$token->type, $token->source, $token->normalizedSource],
             $tokens,
         ));
+    }
+
+    #[DataProvider('shorthandArrayTokenCases')]
+    #[Test]
+    public function tokenizingShorthandArraysReturnsArrayTokens(string $input, TemplateToken $expected): void
+    {
+        $subject = new TemplateLexer();
+        $tokens = $subject->tokenize($input);
+
+        self::assertCount(1, $tokens);
+        self::assertEquals($expected, $tokens[0]);
+    }
+
+    #[DataProvider('invalidArrayCases')]
+    #[Test]
+    public function tokenizingInvalidArraySyntaxFallsBackToShorthandTokens(string $input): void
+    {
+        $subject = new TemplateLexer();
+        $tokens = $subject->tokenize($input);
+
+        self::assertCount(1, $tokens);
+        self::assertNotSame(TemplateToken::TYPE_ARRAY, $tokens[0]->type);
+        self::assertSame($input, $tokens[0]->source);
     }
 }

@@ -292,11 +292,8 @@ class TemplateParser
                     $templateToken->insideCdata ? self::CONTEXT_INSIDE_CDATA : $context,
                 );
                 continue;
-            }
-            if ($context === self::CONTEXT_INSIDE_VIEWHELPER_ARGUMENTS
-                && preg_match(Patterns::$SCAN_PATTERN_SHORTHANDSYNTAX_ARRAYS, $templateElement, $matchedVariables) > 0
-            ) {
-                $this->arrayHandler($state, $this->recursiveArrayHandler($state, $matchedVariables['Array']));
+            } elseif ($templateToken->type === TemplateToken::TYPE_ARRAY) {
+                $this->arrayHandler($state, $this->recursiveArrayHandler($state, $templateToken->arrayParts));
                 continue;
             }
             $this->textHandler($state, $templateElement);
@@ -492,7 +489,9 @@ class TemplateParser
                     $state,
                     $singleMatch['NamespaceIdentifier'],
                     $singleMatch['MethodIdentifier'],
-                    fn(ViewHelperNode $viewHelperNode): array => (strlen($singleMatch['ViewHelperArguments']) > 0) ? $this->recursiveArrayHandler($state, $singleMatch['ViewHelperArguments'], $viewHelperNode) : [],
+                    fn(ViewHelperNode $viewHelperNode): array => (strlen($singleMatch['ViewHelperArguments']) > 0)
+                        ? $this->recursiveArrayHandler($state, $this->extractArrayPartsFromSource($singleMatch['ViewHelperArguments']), $viewHelperNode)
+                        : [],
                 );
                 if ($viewHelperNode) {
                     $numberOfViewHelpers++;
@@ -676,10 +675,14 @@ class TemplateParser
      */
     protected function textAndShorthandSyntaxHandler(ParsingState $state, string $text, int $context): void
     {
-        $sections = $this->getTemplateLexer()->tokenize($text);
+        $sections = $this->tokenizeTemplate($text);
         foreach ($sections as $section) {
             if ($section->type === TemplateToken::TYPE_TEXT || $section->type === TemplateToken::TYPE_OPEN_VIEWHELPER_TAG || $section->type === TemplateToken::TYPE_CLOSE_VIEWHELPER_TAG) {
                 $this->textHandler($state, $section->source);
+                continue;
+            }
+            if ($section->type === TemplateToken::TYPE_ARRAY) {
+                $this->arrayHandler($state, $this->recursiveArrayHandler($state, $section->arrayParts));
                 continue;
             }
             $this->processShorthandToken($state, $section->source, $section->normalizedSource ?? $section->source, $section->insideCdata ? self::CONTEXT_INSIDE_CDATA : $context);
@@ -711,13 +714,6 @@ class TemplateParser
                     $this->renderingContext->getErrorHandler()->handleParserError($error),
                 );
             }
-            return;
-        }
-
-        if ($context === self::CONTEXT_INSIDE_VIEWHELPER_ARGUMENTS
-            && preg_match(Patterns::$SCAN_PATTERN_SHORTHANDSYNTAX_ARRAYS, $normalizedSection, $matchedVariables) > 0
-        ) {
-            $this->arrayHandler($state, $this->recursiveArrayHandler($state, $matchedVariables['Array']));
             return;
         }
 
@@ -782,63 +778,72 @@ class TemplateParser
      * - Variables
      * - sub-arrays
      *
-     * @param string $arrayText Array text
+     * @param list<\TYPO3Fluid\Fluid\Core\Parser\Lexer\ShorthandArrayPart> $arrayParts Parsed array parts
      * @param ViewHelperNode|null $viewHelperNode ViewHelper node - passed only if the array is a collection of arguments for an inline ViewHelper
      * @return NodeInterface[] the array node built up
      * @throws Exception
      */
-    protected function recursiveArrayHandler(ParsingState $state, string $arrayText, ?ViewHelperNode $viewHelperNode = null): array
+    protected function recursiveArrayHandler(ParsingState $state, array $arrayParts, ?ViewHelperNode $viewHelperNode = null): array
     {
         $undeclaredArguments = [];
         $argumentDefinitions = [];
         if ($viewHelperNode instanceof ViewHelperNode) {
             $argumentDefinitions = $viewHelperNode->getArgumentDefinitions();
         }
-        $matches = [];
         $arrayToBuild = [];
-        if (preg_match_all(Patterns::$SPLIT_PATTERN_SHORTHANDSYNTAX_ARRAY_PARTS, $arrayText, $matches, PREG_SET_ORDER)) {
-            foreach ($matches as $singleMatch) {
-                $arrayKey = $this->unquoteString($singleMatch['Key']);
-                $assignInto = &$arrayToBuild;
-                $isBoolean = false;
-                $argumentDefinition = null;
-                if (isset($argumentDefinitions[$arrayKey])) {
-                    $argumentDefinition = $argumentDefinitions[$arrayKey];
-                    $isBoolean = $argumentDefinitions[$arrayKey]->isBooleanType();
-                } else {
-                    $assignInto = &$undeclaredArguments;
-                }
-
-                $escapingEnabledBackup = $this->escapingEnabled;
-                $this->escapingEnabled = $this->escapingEnabled && $viewHelperNode instanceof ViewHelperNode && $this->isArgumentEscaped($viewHelperNode->getUninitializedViewHelper(), $argumentDefinition);
-
-                if (array_key_exists('Subarray', $singleMatch) && !empty($singleMatch['Subarray'])) {
-                    $assignInto[$arrayKey] = new ArrayNode($this->recursiveArrayHandler($state, $singleMatch['Subarray']));
-                } elseif (!empty($singleMatch['VariableIdentifier'])) {
-                    $assignInto[$arrayKey] = new ObjectAccessorNode($singleMatch['VariableIdentifier']);
-                    if ($viewHelperNode instanceof ViewHelperNode && !$isBoolean) {
-                        $this->callInterceptor($assignInto[$arrayKey], InterceptorInterface::INTERCEPT_OBJECTACCESSOR, $state);
-                    }
-                } elseif (array_key_exists('Number', $singleMatch) && (!empty($singleMatch['Number']) || $singleMatch['Number'] === '0')) {
-                    // Note: this method of casting picks "int" when value is a natural number and "float" if any decimals are found. See also NumericNode.
-                    $assignInto[$arrayKey] = $singleMatch['Number'] + 0;
-                } elseif ((array_key_exists('QuotedString', $singleMatch) && !empty($singleMatch['QuotedString']))) {
-                    $argumentString = $this->unquoteString($singleMatch['QuotedString']);
-                    $assignInto[$arrayKey] = $this->buildArgumentObjectTree($state, $argumentString);
-                }
-
-                if ($isBoolean) {
-                    $assignInto[$arrayKey] = new BooleanNode($assignInto[$arrayKey]);
-                }
-
-                $this->escapingEnabled = $escapingEnabledBackup;
+        foreach ($arrayParts as $arrayPart) {
+            $arrayKey = $this->unquoteString($arrayPart->key);
+            $assignInto = &$arrayToBuild;
+            $isBoolean = false;
+            $argumentDefinition = null;
+            if (isset($argumentDefinitions[$arrayKey])) {
+                $argumentDefinition = $argumentDefinitions[$arrayKey];
+                $isBoolean = $argumentDefinitions[$arrayKey]->isBooleanType();
+            } else {
+                $assignInto = &$undeclaredArguments;
             }
+
+            $escapingEnabledBackup = $this->escapingEnabled;
+            $this->escapingEnabled = $this->escapingEnabled && $viewHelperNode instanceof ViewHelperNode && $this->isArgumentEscaped($viewHelperNode->getUninitializedViewHelper(), $argumentDefinition);
+
+            if ($arrayPart->subarray !== null) {
+                $assignInto[$arrayKey] = new ArrayNode($this->recursiveArrayHandler($state, $this->extractArrayPartsFromSource($arrayPart->subarray)));
+            } elseif ($arrayPart->variableIdentifier !== null) {
+                $assignInto[$arrayKey] = new ObjectAccessorNode($arrayPart->variableIdentifier);
+                if ($viewHelperNode instanceof ViewHelperNode && !$isBoolean) {
+                    $this->callInterceptor($assignInto[$arrayKey], InterceptorInterface::INTERCEPT_OBJECTACCESSOR, $state);
+                }
+            } elseif ($arrayPart->number !== null) {
+                // Note: this method of casting picks "int" when value is a natural number and "float" if any decimals are found. See also NumericNode.
+                $assignInto[$arrayKey] = $arrayPart->number + 0;
+            } elseif ($arrayPart->quotedString !== null) {
+                $argumentString = $this->unquoteString($arrayPart->quotedString);
+                $assignInto[$arrayKey] = $this->buildArgumentObjectTree($state, $argumentString);
+            }
+
+            if ($isBoolean) {
+                $assignInto[$arrayKey] = new BooleanNode($assignInto[$arrayKey]);
+            }
+
+            $this->escapingEnabled = $escapingEnabledBackup;
         }
         if ($viewHelperNode instanceof ViewHelperNode) {
             $this->abortIfRequiredArgumentsAreMissing($argumentDefinitions, $arrayToBuild);
             $viewHelperNode->getUninitializedViewHelper()->validateAdditionalArguments($undeclaredArguments);
         }
         return $arrayToBuild + $undeclaredArguments;
+    }
+
+    /**
+     * @return list<\TYPO3Fluid\Fluid\Core\Parser\Lexer\ShorthandArrayPart>
+     */
+    protected function extractArrayPartsFromSource(string $arrayText): array
+    {
+        $tokens = $this->tokenizeTemplate('{' . $arrayText . '}');
+        if (count($tokens) === 1 && $tokens[0]->type === TemplateToken::TYPE_ARRAY) {
+            return $tokens[0]->arrayParts;
+        }
+        return [];
     }
 
     /**
