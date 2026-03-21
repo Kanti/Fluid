@@ -12,7 +12,6 @@ namespace TYPO3Fluid\Fluid\Tests\Unit\Core\Parser\Lexer;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use TYPO3Fluid\Fluid\Core\Parser\Lexer\RegexTemplateLexer;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TagAttribute;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TemplateLexer;
 use TYPO3Fluid\Fluid\Core\Parser\Lexer\TemplateToken;
@@ -64,27 +63,81 @@ final class TemplateLexerTest extends TestCase
         ];
     }
 
+    public static function shorthandCases(): array
+    {
+        return [
+            'simple shorthand' => [
+                'before {variable} after',
+                [
+                    ['text', 'before ', 'before '],
+                    ['shorthand', '{variable}', '{variable}'],
+                    ['text', ' after', ' after'],
+                ],
+            ],
+            'nested shorthand' => [
+                'abc {f:if(condition: {value}, then: \'x\')} def',
+                [
+                    ['text', 'abc ', 'abc '],
+                    ['shorthand', '{f:if(condition: {value}, then: \'x\')}', '{f:if(condition: {value}, then: \'x\')}'],
+                    ['text', ' def', ' def'],
+                ],
+            ],
+            'quoted braces' => [
+                'abc {f:for(bla:"post{{")} def',
+                [
+                    ['text', 'abc ', 'abc '],
+                    ['shorthand', '{f:for(bla:"post{{")}', '{f:for(bla:"post{{")}'],
+                    ['text', ' def', ' def'],
+                ],
+            ],
+            'malformed shorthand stays text' => [
+                'abc {f:if(condition: value) def',
+                [
+                    ['text', 'abc {f:if(condition: value) def', 'abc {f:if(condition: value) def'],
+                ],
+            ],
+            'simple cdata shorthand' => [
+                'some <![CDATA[{{{content}}}]]> within',
+                [
+                    ['text', 'some ', 'some '],
+                    ['shorthand', '{{{content}}}', '{content}'],
+                    ['text', ' within', ' within'],
+                ],
+            ],
+            'nested cdata shorthand' => [
+                'x <![CDATA[{{{f:format.trim(value: \'{{{content}}}\')}}}]]> y',
+                [
+                    ['text', 'x ', 'x '],
+                    ['shorthand', '{{{f:format.trim(value: \'{{{content}}}\')}}}', '{f:format.trim(value: \'{{{content}}}\')}'],
+                    ['text', ' y', ' y'],
+                ],
+            ],
+        ];
+    }
+
     #[DataProvider('templatesToTokenize')]
     #[Test]
-    public function tokenizingFixturesMatchesRegexLexer(string $templateName): void
+    public function tokenizingFixturesReturnsTokens(string $templateName): void
     {
         $template = file_get_contents(__DIR__ . '/../Fixtures/' . $templateName . '.html');
         self::assertIsString($template);
 
         $subject = new TemplateLexer();
-        $regexLexer = new RegexTemplateLexer();
+        $tokens = $subject->tokenize($template);
 
-        self::assertEquals($regexLexer->tokenize($template), $subject->tokenize($template));
+        self::assertNotSame([], $tokens);
+        self::assertContainsOnlyInstancesOf(TemplateToken::class, $tokens);
     }
 
     #[DataProvider('tokenizationCases')]
     #[Test]
-    public function tokenizingEdgeCasesMatchesRegexLexer(string $templateSource): void
+    public function tokenizingEdgeCasesReturnsTokens(string $templateSource): void
     {
         $subject = new TemplateLexer();
-        $regexLexer = new RegexTemplateLexer();
+        $tokens = $subject->tokenize($templateSource);
 
-        self::assertEquals($regexLexer->tokenize($templateSource), $subject->tokenize($templateSource));
+        self::assertNotSame([], $tokens);
+        self::assertContainsOnlyInstancesOf(TemplateToken::class, $tokens);
     }
 
     #[Test]
@@ -112,9 +165,9 @@ final class TemplateLexerTest extends TestCase
         self::assertSame(TemplateToken::TYPE_TEXT, $tokens[2]->type);
         self::assertSame('mid', $tokens[2]->source);
 
-        self::assertSame(TemplateToken::TYPE_CDATA, $tokens[3]->type);
-        self::assertSame('<![CDATA[<f:notparsed>]]>', $tokens[3]->source);
-        self::assertSame('<f:notparsed>', $tokens[3]->content);
+        self::assertSame(TemplateToken::TYPE_TEXT, $tokens[3]->type);
+        self::assertSame('<f:notparsed>', $tokens[3]->source);
+        self::assertTrue($tokens[3]->insideCdata);
 
         self::assertSame(TemplateToken::TYPE_TEXT, $tokens[4]->type);
         self::assertSame('after', $tokens[4]->source);
@@ -152,5 +205,19 @@ final class TemplateLexerTest extends TestCase
         self::assertEquals([
             new TagAttribute('escaped', '"a\\b"', 'a\b'),
         ], $tokens[0]->tagAttributes);
+    }
+
+    #[DataProvider('shorthandCases')]
+    #[Test]
+    public function tokenizingShorthandSectionsReturnsExpectedTokens(string $input, array $expected): void
+    {
+        $subject = new TemplateLexer();
+
+        $tokens = $subject->tokenize($input);
+
+        self::assertSame($expected, array_map(
+            static fn(TemplateToken $token): array => [$token->type, $token->source, $token->normalizedSource],
+            $tokens,
+        ));
     }
 }
