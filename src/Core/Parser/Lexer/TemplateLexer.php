@@ -17,17 +17,6 @@ final class TemplateLexer implements TemplateLexerInterface
 {
     private const SHORTHAND_IDENTIFIER_CHARACTERS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-';
 
-    /**
-     * @param list<class-string> $expressionNodeTypes
-     */
-    public function __construct(
-        private readonly array $expressionNodeTypes = [
-            CastingExpressionNode::class,
-            MathExpressionNode::class,
-            TernaryExpressionNode::class,
-        ],
-    ) {}
-
     public function tokenize(string $templateSource): array
     {
         $tokens = [];
@@ -388,24 +377,264 @@ final class TemplateLexer implements TemplateLexerInterface
 
     private function createExpressionTokenFromShorthand(string $source, string $normalizedSource, bool $insideCdata = false): ?TemplateToken
     {
-        foreach ($this->expressionNodeTypes as $expressionNodeType) {
-            $matches = [];
-            preg_match_all($expressionNodeType::$detectionExpression, $normalizedSource, $matches, PREG_SET_ORDER);
-            foreach ($matches as $matchedVariableSet) {
-                if (($matchedVariableSet[0] ?? null) !== $normalizedSource) {
-                    continue;
-                }
-                return TemplateToken::expression(
-                    $source,
-                    $normalizedSource,
-                    $expressionNodeType,
-                    $matchedVariableSet,
-                    $insideCdata,
-                );
-            }
+        $expressionNodeType = $this->detectExpressionNodeType($normalizedSource);
+        if ($expressionNodeType === null) {
+            return null;
+        }
+
+        return TemplateToken::expression(
+            $source,
+            $normalizedSource,
+            $expressionNodeType,
+            [
+                0 => $normalizedSource,
+                1 => $normalizedSource,
+            ],
+            $insideCdata,
+        );
+    }
+
+    /**
+     * @return class-string|null
+     */
+    private function detectExpressionNodeType(string $normalizedSource): ?string
+    {
+        if (!$this->isWrappedInBraces($normalizedSource)) {
+            return null;
+        }
+
+        if ($this->isCastingExpression($normalizedSource)) {
+            return CastingExpressionNode::class;
+        }
+        if ($this->isMathExpression($normalizedSource)) {
+            return MathExpressionNode::class;
+        }
+        if ($this->isTernaryExpression($normalizedSource)) {
+            return TernaryExpressionNode::class;
         }
 
         return null;
+    }
+
+    private function isCastingExpression(string $normalizedSource): bool
+    {
+        $content = substr($normalizedSource, 1, -1);
+        if ($content !== trim($content)) {
+            return false;
+        }
+
+        $separatorPosition = $this->findTopLevelAsSeparator($content);
+        if ($separatorPosition === null) {
+            return false;
+        }
+
+        $left = substr($content, 0, $separatorPosition);
+        $right = substr($content, $separatorPosition + 4);
+
+        return $this->isValidCastingOperand($left) && $this->isValidCastingTarget($right);
+    }
+
+    private function isMathExpression(string $normalizedSource): bool
+    {
+        $content = trim(substr($normalizedSource, 1, -1));
+        if ($content === '') {
+            return false;
+        }
+
+        $cursor = 0;
+        if (!$this->parseMathOperand($content, $cursor, true)) {
+            return false;
+        }
+
+        $foundOperator = false;
+        while (true) {
+            $this->skipWhitespace($content, $cursor);
+            $operator = $content[$cursor] ?? null;
+            if (!in_array($operator, ['*', '+', '^', '/', '%', '-'], true)) {
+                break;
+            }
+
+            $foundOperator = true;
+            $cursor++;
+
+            if (!$this->parseMathOperand($content, $cursor, true)) {
+                return false;
+            }
+        }
+
+        $this->skipWhitespace($content, $cursor);
+        return $foundOperator && $cursor === strlen($content);
+    }
+
+    private function isTernaryExpression(string $normalizedSource): bool
+    {
+        $content = substr($normalizedSource, 1, -1);
+        $questionPosition = $this->findTopLevelCharacter($content, '?');
+        if ($questionPosition === null) {
+            return false;
+        }
+
+        $colonPosition = $this->findTopLevelCharacter($content, ':', $questionPosition + 1);
+        if ($colonPosition === null) {
+            return false;
+        }
+
+        $condition = trim(substr($content, 0, $questionPosition));
+        $then = trim(substr($content, $questionPosition + 1, $colonPosition - $questionPosition - 1));
+        $else = trim(substr($content, $colonPosition + 1));
+
+        return $condition !== '' && $else !== '' && $then !== '?';
+    }
+
+    private function findTopLevelAsSeparator(string $content): ?int
+    {
+        $length = strlen($content);
+        $cursor = 0;
+        while ($cursor < $length) {
+            $character = $content[$cursor];
+            if ($character === '"' || $character === '\'') {
+                $cursor = $this->skipQuotedString($content, $cursor);
+                continue;
+            }
+            if ($character === '{') {
+                $cursor = $this->skipNestedBraces($content, $cursor);
+                continue;
+            }
+            if ($character === '(') {
+                $cursor = $this->skipNestedParentheses($content, $cursor);
+                continue;
+            }
+            if (
+                $character === ' '
+                && substr($content, $cursor, 4) === ' as '
+                && $cursor > 0
+                && isset($content[$cursor + 4])
+            ) {
+                return $cursor;
+            }
+            $cursor++;
+        }
+
+        return null;
+    }
+
+    private function findTopLevelCharacter(string $content, string $characterToFind, int $offset = 0): ?int
+    {
+        $length = strlen($content);
+        $cursor = $offset;
+        while ($cursor < $length) {
+            $character = $content[$cursor];
+            if ($character === '"' || $character === '\'') {
+                $cursor = $this->skipQuotedString($content, $cursor);
+                continue;
+            }
+            if ($character === '{') {
+                $cursor = $this->skipNestedBraces($content, $cursor);
+                continue;
+            }
+            if ($character === '(') {
+                $cursor = $this->skipNestedParentheses($content, $cursor);
+                continue;
+            }
+            if ($character === $characterToFind) {
+                return $cursor;
+            }
+            $cursor++;
+        }
+
+        return null;
+    }
+
+    private function parseMathOperand(string $content, int &$cursor, bool $allowSign = false): bool
+    {
+        $this->skipWhitespace($content, $cursor);
+        $start = $cursor;
+
+        if (
+            $allowSign
+            && isset($content[$cursor])
+            && ($content[$cursor] === '+' || $content[$cursor] === '-')
+        ) {
+            $cursor++;
+            $this->skipWhitespace($content, $cursor);
+        }
+
+        if (($content[$cursor] ?? null) === '(') {
+            $end = $this->skipNestedParentheses($content, $cursor);
+            if ($end <= $cursor + 1) {
+                $cursor = $start;
+                return false;
+            }
+            $inner = substr($content, $cursor + 1, $end - $cursor - 2);
+            if (!$this->isMathExpression('{' . $inner . '}') && !$this->isTernaryExpression('{' . $inner . '}')) {
+                $cursor = $start;
+                return false;
+            }
+            $cursor = $end;
+            return true;
+        }
+
+        $number = $this->parseSignedMathNumber($content, $cursor);
+        if ($number !== null) {
+            return true;
+        }
+
+        $variableIdentifier = $this->parseShorthandVariableIdentifier($content, $cursor);
+        if ($variableIdentifier !== null) {
+            return true;
+        }
+
+        if (($content[$cursor] ?? null) === '{') {
+            $cursor = $this->skipNestedBraces($content, $cursor);
+            return true;
+        }
+
+        $cursor = $start;
+        return false;
+    }
+
+    private function parseSignedMathNumber(string $content, int &$cursor): ?string
+    {
+        $start = $cursor;
+        if (($content[$cursor] ?? null) === '+' || ($content[$cursor] ?? null) === '-') {
+            $cursor++;
+            $this->skipWhitespace($content, $cursor);
+        }
+
+        $number = $this->parseShorthandNumber($content, $cursor);
+        if ($number === null) {
+            $cursor = $start;
+            return null;
+        }
+
+        return substr($content, $start, $cursor - $start);
+    }
+
+    private function isValidCastingOperand(string $content): bool
+    {
+        $cursor = 0;
+        $operand = $this->parseShorthandVariableIdentifier($content, $cursor);
+        return $operand !== null && $cursor === strlen($content);
+    }
+
+    private function isValidCastingTarget(string $content): bool
+    {
+        $content = trim($content);
+        if ($content === '') {
+            return false;
+        }
+        if (in_array($content, ['integer', 'boolean', 'string', 'float', 'array', 'DateTime'], true)) {
+            return true;
+        }
+
+        $cursor = 0;
+        $target = $this->parseShorthandVariableIdentifier($content, $cursor);
+        return $target !== null && $cursor === strlen($content);
+    }
+
+    private function isWrappedInBraces(string $content): bool
+    {
+        return strlen($content) >= 2 && $content[0] === '{' && $content[strlen($content) - 1] === '}';
     }
 
     /**
@@ -607,6 +836,39 @@ final class TemplateLexer implements TemplateLexerInterface
                 continue;
             }
             if ($character === '}') {
+                $depth--;
+                $cursor++;
+                if ($depth === 0) {
+                    return $cursor;
+                }
+                continue;
+            }
+            $cursor++;
+        }
+
+        return strlen($content);
+    }
+
+    private function skipNestedParentheses(string $content, int $offset): int
+    {
+        $cursor = $offset + 1;
+        $depth = 1;
+        while (isset($content[$cursor])) {
+            $character = $content[$cursor];
+            if ($character === '"' || $character === '\'') {
+                $cursor = $this->skipQuotedString($content, $cursor);
+                continue;
+            }
+            if ($character === '{') {
+                $cursor = $this->skipNestedBraces($content, $cursor);
+                continue;
+            }
+            if ($character === '(') {
+                $depth++;
+                $cursor++;
+                continue;
+            }
+            if ($character === ')') {
                 $depth--;
                 $cursor++;
                 if ($depth === 0) {
