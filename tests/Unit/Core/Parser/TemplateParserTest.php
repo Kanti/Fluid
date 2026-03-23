@@ -12,30 +12,16 @@ namespace TYPO3Fluid\Fluid\Tests\Unit\Core\Parser;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use TYPO3Fluid\Fluid\Core\Parser\Configuration;
+use TYPO3Fluid\Fluid\Core\Parser\ParsingState;
+use TYPO3Fluid\Fluid\Core\Parser\SyntaxTree\RootNode;
 use TYPO3Fluid\Fluid\Core\Parser\TemplateParser;
+use TYPO3Fluid\Fluid\Core\Rendering\RenderingContext;
+use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
+use TYPO3Fluid\Fluid\Core\Variables\VariableProviderInterface;
 
 final class TemplateParserTest extends TestCase
 {
-    public static function quotedStrings(): array
-    {
-        return [
-            ['"no quotes here"', 'no quotes here'],
-            ["'no quotes here'", 'no quotes here'],
-            ["'this \"string\" had \\'quotes\\' in it'", 'this "string" had \'quotes\' in it'],
-            ['"this \\"string\\" had \'quotes\' in it"', 'this "string" had \'quotes\' in it'],
-            ['"a weird \"string\" \'with\' *freaky* \\\\stuff', 'a weird "string" \'with\' *freaky* \\stuff'],
-            ['\'\\\'escaped quoted string in string\\\'\'', '\'escaped quoted string in string\''],
-        ];
-    }
-
-    #[DataProvider('quotedStrings')]
-    #[Test]
-    public function unquoteStringReturnsUnquotedStrings(string $quoted, string $unquoted): void
-    {
-        $subject = new TemplateParser();
-        self::assertEquals($unquoted, $subject->unquoteString($quoted));
-    }
-
     public static function templatesToSplit()
     {
         return [
@@ -55,4 +41,41 @@ final class TemplateParserTest extends TestCase
         $method = new \ReflectionMethod($subject, 'splitTemplateAtDynamicTags');
         self::assertSame($expectedResult, $method->invoke($subject, $template));
     }
+
+    #[Test]
+    public function textAndShorthandSyntaxHandlerSplitsMalformedShorthandAsText(): void
+    {
+        $subject = new TemplateParser();
+        $method = new \ReflectionMethod($subject, 'textAndShorthandSyntaxHandler');
+
+        $renderingContext = self::createStub(RenderingContextInterface::class);
+        $renderingContext->method('buildParserConfiguration')->willReturn(new Configuration());
+        $renderingContext->method('getExpressionNodeTypes')->willReturn([]);
+        $subject->setRenderingContext($renderingContext);
+
+        $rootNode = new RootNode();
+        $state = new ParsingState();
+        $state->setRootNode($rootNode);
+        $state->pushNodeToStack($rootNode);
+        $state->setVariableProvider(self::createStub(VariableProviderInterface::class));
+
+        $method->invoke($subject, $state, 'abc {f:if(condition: value) def', TemplateParser::CONTEXT_OUTSIDE_VIEWHELPER_ARGUMENTS);
+
+        $children = $rootNode->getChildNodes();
+        self::assertCount(1, $children);
+        self::assertSame('abc {f:if(condition: value) def', $children[0]->evaluate($renderingContext));
+    }
+
+    #[Test]
+    public function parseUsesTokenLineAndCharacterInErrorMessages(): void
+    {
+        $renderingContext = new RenderingContext();
+        $subject = $renderingContext->getTemplateParser();
+
+        self::expectExceptionMessage('line 2 at character 3');
+        self::expectExceptionMessage('Unknown Namespace: foo');
+
+        $subject->parse("\n  <foo:bar />", 'TestTemplate');
+    }
+
 }
