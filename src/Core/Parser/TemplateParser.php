@@ -793,7 +793,9 @@ class TemplateParser
                 }
             } elseif ($arrayPart->number !== null) {
                 // Note: this method of casting picks "int" when value is a natural number and "float" if any decimals are found. See also NumericNode.
-                $assignInto[$arrayKey] = $arrayPart->number + 0;
+                $assignInto[$arrayKey] = str_contains($arrayPart->number, '.')
+                    ? (float)$arrayPart->number
+                    : (int)$arrayPart->number;
             } elseif ($arrayPart->expressionValue !== null) {
                 $assignInto[$arrayKey] = $this->buildArgumentObjectTree($state, $arrayPart->expressionValue);
             } elseif ($arrayPart->quotedString !== null) {

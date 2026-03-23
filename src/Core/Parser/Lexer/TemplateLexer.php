@@ -348,8 +348,7 @@ final class TemplateLexer implements TemplateLexerInterface
         string $openingDelimiter,
         string $closingDelimiter,
         bool $insideCdata,
-    ): ?TemplateToken
-    {
+    ): ?TemplateToken {
         $openingLength = strlen($openingDelimiter);
         $closingLength = strlen($closingDelimiter);
         if (substr_compare($templateSource, $openingDelimiter, $offset, $openingLength) !== 0) {
@@ -1252,18 +1251,4 @@ final class TemplateLexer implements TemplateLexerInterface
         return [$lineNumber, $lineCharacter];
     }
 
-    private static function isNamespaceCharacter(string $char): bool
-    {
-        return ctype_alnum($char) || $char === '.';
-    }
-
-    private static function isMethodCharacter(string $char): bool
-    {
-        return ctype_alnum($char) || $char === '.';
-    }
-
-    private static function isAttributeNameCharacter(string $char): bool
-    {
-        return ctype_alnum($char) || $char === ':' || $char === '-';
-    }
 }

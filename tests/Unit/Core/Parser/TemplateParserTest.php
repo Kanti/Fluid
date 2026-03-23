@@ -14,11 +14,11 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use TYPO3Fluid\Fluid\Core\Parser\Configuration;
 use TYPO3Fluid\Fluid\Core\Parser\ParsingState;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContext;
 use TYPO3Fluid\Fluid\Core\Parser\SyntaxTree\RootNode;
+use TYPO3Fluid\Fluid\Core\Parser\TemplateParser;
+use TYPO3Fluid\Fluid\Core\Rendering\RenderingContext;
 use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\Variables\VariableProviderInterface;
-use TYPO3Fluid\Fluid\Core\Parser\TemplateParser;
 
 final class TemplateParserTest extends TestCase
 {
@@ -47,9 +47,8 @@ final class TemplateParserTest extends TestCase
     {
         $subject = new TemplateParser();
         $method = new \ReflectionMethod($subject, 'textAndShorthandSyntaxHandler');
-        $method->setAccessible(true);
 
-        $renderingContext = $this->createStub(RenderingContextInterface::class);
+        $renderingContext = self::createStub(RenderingContextInterface::class);
         $renderingContext->method('buildParserConfiguration')->willReturn(new Configuration());
         $renderingContext->method('getExpressionNodeTypes')->willReturn([]);
         $subject->setRenderingContext($renderingContext);
@@ -58,7 +57,7 @@ final class TemplateParserTest extends TestCase
         $state = new ParsingState();
         $state->setRootNode($rootNode);
         $state->pushNodeToStack($rootNode);
-        $state->setVariableProvider($this->createStub(VariableProviderInterface::class));
+        $state->setVariableProvider(self::createStub(VariableProviderInterface::class));
 
         $method->invoke($subject, $state, 'abc {f:if(condition: value) def', TemplateParser::CONTEXT_OUTSIDE_VIEWHELPER_ARGUMENTS);
 

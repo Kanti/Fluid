@@ -54,8 +54,7 @@ final readonly class TemplateToken
         bool $insideCdata = false,
         int $lineNumber = 1,
         int $lineCharacter = 1,
-    ): self
-    {
+    ): self {
         return new self(self::TYPE_TEXT, $source, $lineNumber, $lineCharacter, normalizedSource: $source, insideCdata: $insideCdata);
     }
 
@@ -106,8 +105,7 @@ final readonly class TemplateToken
         string $content,
         int $lineNumber = 1,
         int $lineCharacter = 1,
-    ): self
-    {
+    ): self {
         return new self(self::TYPE_CDATA, $source, $lineNumber, $lineCharacter, content: $content, normalizedSource: $source);
     }
 
@@ -117,8 +115,7 @@ final readonly class TemplateToken
         bool $insideCdata = false,
         int $lineNumber = 1,
         int $lineCharacter = 1,
-    ): self
-    {
+    ): self {
         return new self(self::TYPE_SHORTHAND, $source, $lineNumber, $lineCharacter, normalizedSource: $normalizedSource, insideCdata: $insideCdata);
     }
 
@@ -130,8 +127,7 @@ final readonly class TemplateToken
         array $arrayParts,
         int $lineNumber = 1,
         int $lineCharacter = 1,
-    ): self
-    {
+    ): self {
         return new self(self::TYPE_ARRAY, $source, $lineNumber, $lineCharacter, normalizedSource: $source, arrayParts: $arrayParts);
     }
 
