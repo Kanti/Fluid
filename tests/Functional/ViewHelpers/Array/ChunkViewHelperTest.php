@@ -204,6 +204,71 @@ final class ChunkViewHelperTest extends AbstractFunctionalTestCase
         self::assertSame($expectation, $view->render());
     }
 
+    public static function renderWithRepeatedIteratorKeysDataProvider(): \Generator
+    {
+        $numericKeys = static function (): \Generator {
+            yield from [2, 1];
+            yield from [4, 3];
+        };
+        $stringKeys = static function (): \Generator {
+            yield from ['a' => 2, 'b' => 1];
+            yield from ['a' => 4, 'b' => 3];
+        };
+        $composed = static function (): \Generator {
+            yield from (static function (): \Generator {
+                yield 'a';
+                yield 'k' => 'b';
+            })();
+            yield from ['c', 'd'];
+            yield 'k' => 'e';
+        };
+        yield 'repeated numeric keys' => [
+            'valueFactory' => $numericKeys,
+            'src' => '{value -> f:array.chunk(size: 2)}',
+            'expectation' => [[2, 1], [4, 3]],
+        ];
+        yield 'repeated string keys' => [
+            'valueFactory' => $stringKeys,
+            'src' => '{value -> f:array.chunk(size: 2)}',
+            'expectation' => [[2, 1], [4, 3]],
+        ];
+        yield 'composed generators' => [
+            'valueFactory' => $composed,
+            'src' => '<f:array.chunk value="{value}" size="2" />',
+            'expectation' => [['a', 'b'], ['c', 'd'], ['e']],
+        ];
+        yield 'repeated keys with preserveKeys use the last item per key' => [
+            'valueFactory' => $numericKeys,
+            'src' => '{value -> f:array.chunk(size: 2, preserveKeys: true)}',
+            'expectation' => [[0 => 4, 1 => 3]],
+        ];
+    }
+
+    #[DataProvider('renderWithRepeatedIteratorKeysDataProvider')]
+    #[Test]
+    public function renderWithRepeatedIteratorKeys(\Closure $valueFactory, string $src, array $expectation): void
+    {
+        // Generators can't be rewound, so each rendering gets a fresh one. The variable name is unique
+        // per data set, so the first rendering can't reuse a template compiled by another test.
+        $variableName = 'value' . hash('xxh3', (string)$this->dataName());
+        $src = str_replace('{value', '{' . $variableName, $src);
+
+        $view = new TemplateView();
+        $view->getRenderingContext()->setCache(self::$cache);
+        $view->getRenderingContext()->getTemplatePaths()->setTemplateSource($src);
+        $templateIdentifier = $view->getRenderingContext()->getTemplatePaths()->getTemplateIdentifier();
+        self::assertFalse($view->getRenderingContext()->getTemplateCompiler()->has($templateIdentifier), 'First rendering must be uncompiled');
+        $view->assign($variableName, $valueFactory());
+        self::assertSame($expectation, $view->render());
+
+        $view = new TemplateView();
+        $view->getRenderingContext()->setCache(self::$cache);
+        $view->getRenderingContext()->getTemplatePaths()->setTemplateSource($src);
+        self::assertTrue($view->getRenderingContext()->getTemplateCompiler()->has($templateIdentifier), 'Second rendering must use the compiled template');
+        $view->assign($variableName, $valueFactory());
+        self::assertSame($expectation, $view->render());
+    }
+
     public static function renderInvalidDataProvider(): \Generator
     {
         yield 'invalid string content' => [
