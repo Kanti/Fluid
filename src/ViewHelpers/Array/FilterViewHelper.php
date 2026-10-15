@@ -27,6 +27,10 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\InvalidArgumentValueException;
  *
  * This ViewHelper is similar to PHP's :php:`array_filter()` function.
  *
+ * Iterators like generators can yield the same key more than once. All of
+ * their items are used, unless ``preserveKeys`` is set: then only the last
+ * item per key is used, like with PHP's :php:`iterator_to_array()` function.
+ *
  * Examples
  * ========
  *
@@ -97,7 +101,7 @@ final class FilterViewHelper extends AbstractViewHelper
         }
         $property = $this->arguments['property'];
         $result = [];
-        foreach (iterator_to_array($value) as $key => $item) {
+        foreach (iterator_to_array($value, $this->arguments['preserveKeys']) as $key => $item) {
             $condition = $item;
             if ($property !== null) {
                 if (!is_array($item) && !is_object($item)) {
