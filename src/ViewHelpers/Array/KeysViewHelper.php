@@ -69,6 +69,10 @@ final class KeysViewHelper extends AbstractViewHelper
                 1792005150,
             );
         }
-        return array_keys(iterator_to_array($value));
+        $keys = [];
+        foreach ($value as $key => $item) {
+            $keys[] = $key;
+        }
+        return $keys;
     }
 }
