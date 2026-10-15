@@ -152,6 +152,31 @@ final class RandomViewHelperTest extends AbstractFunctionalTestCase
         self::assertEqualsCanonicalizing($expectedItems, array_keys($selectedItems));
     }
 
+    #[Test]
+    public function renderSelectsEveryItemOfIteratorWithRepeatedKeys(): void
+    {
+        $repeatedKeys = static function (): \Generator {
+            yield from [2, 1];
+            yield from [4, 3];
+        };
+        $src = '{repeatedKeys -> f:array.random()}';
+        $selectedItems = [];
+        for ($i = 0; $i < 200; $i++) {
+            // Generators can't be rewound, so each rendering gets a fresh one
+            $view = new TemplateView();
+            $view->getRenderingContext()->setCache(self::$cache);
+            $view->getRenderingContext()->getTemplatePaths()->setTemplateSource($src);
+            $templateIdentifier = $view->getRenderingContext()->getTemplatePaths()->getTemplateIdentifier();
+            // The first rendering is uncompiled, all further renderings use the compiled template
+            self::assertSame($i > 0, $view->getRenderingContext()->getTemplateCompiler()->has($templateIdentifier));
+            $view->assign('repeatedKeys', $repeatedKeys());
+            $result = $view->render();
+            self::assertContains($result, [2, 1, 4, 3]);
+            $selectedItems[$result] = true;
+        }
+        self::assertEqualsCanonicalizing([2, 1, 4, 3], array_keys($selectedItems));
+    }
+
     public static function renderInvalidDataProvider(): \Generator
     {
         yield 'invalid string content' => [

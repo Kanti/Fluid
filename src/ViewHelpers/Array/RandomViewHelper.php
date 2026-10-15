@@ -69,7 +69,7 @@ final class RandomViewHelper extends AbstractViewHelper
                 1792005190,
             );
         }
-        $value = iterator_to_array($value);
+        $value = iterator_to_array($value, false);
         return $value === [] ? null : $value[array_rand($value)];
     }
 }
