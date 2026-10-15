@@ -19,6 +19,10 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\InvalidArgumentValueException;
  *
  * This ViewHelper mimicks PHP's :php:`array_slice()` function.
  *
+ * Iterators like generators can yield the same key more than once. Only the
+ * last item per key is used, like with PHP's :php:`iterator_to_array()`
+ * function.
+ *
  * Examples
  * ========
  *
