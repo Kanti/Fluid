@@ -23,6 +23,10 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\InvalidArgumentValueException;
  * This ViewHelper is similar to PHP's :php:`array_unique()` function, but
  * also works with arrays of arrays or objects.
  *
+ * Iterators like generators can yield the same key more than once. All of
+ * their items are used, unless ``preserveKeys`` is set: then only the last
+ * item per key is used, like with PHP's :php:`iterator_to_array()` function.
+ *
  * Examples
  * ========
  *
@@ -89,7 +93,7 @@ final class UniqueViewHelper extends AbstractViewHelper
             );
         }
         $unique = [];
-        foreach (iterator_to_array($value) as $key => $item) {
+        foreach (iterator_to_array($value, $this->arguments['preserveKeys']) as $key => $item) {
             if (!in_array($item, $unique)) {
                 $unique[$key] = $item;
             }
