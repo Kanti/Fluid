@@ -28,6 +28,10 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\InvalidArgumentValueException;
  * are accessed the same way as variables in templates, so getter methods
  * and nested property paths like ``author.name`` are supported.
  *
+ * Iterators like generators can yield the same key more than once. All of
+ * their items are used, unless ``preserveKeys`` is set: then only the last
+ * item per key is used, like with PHP's :php:`iterator_to_array()` function.
+ *
  * Examples
  * ========
  *
@@ -113,7 +117,7 @@ final class SortViewHelper extends AbstractViewHelper
                 1792005220,
             );
         }
-        $items = iterator_to_array($value);
+        $items = iterator_to_array($value, $this->arguments['preserveKeys']);
         $sortValues = $this->getSortValues($items, $this->arguments['property']);
         $direction = $this->arguments['descending'] ? -1 : 1;
         uksort($items, static fn(int|string $a, int|string $b): int => $direction * self::compare($sortValues[$a], $sortValues[$b]));
