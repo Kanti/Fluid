@@ -101,7 +101,12 @@ Declaring arguments with PHP attributes
 
 As an alternative to :php:`initializeArguments()`, arguments can be declared on
 the parameters of :php:`render()` using
-:php:`TYPO3Fluid\Fluid\Core\ViewHelper\Attribute\Argument`:
+:php:`TYPO3Fluid\Fluid\Core\ViewHelper\Attribute\Argument`. Each ViewHelper must
+use one declaration style: attributed definitions are not merged with
+:php:`initializeArguments()` registrations, including inherited ones. Different
+ViewHelpers in the same project may use different styles.
+
+For example:
 
 .. code-block:: php
 
