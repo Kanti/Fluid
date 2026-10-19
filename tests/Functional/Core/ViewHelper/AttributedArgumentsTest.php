@@ -30,6 +30,14 @@ final class AttributedArgumentsTest extends AbstractFunctionalTestCase
         yield 'unescaped argument' => ['<test:attributedContent value="{value}" />', ['value' => '<b>hello</b>'], '&lt;b&gt;hello&lt;/b&gt;'];
         yield 'nullable default' => ['<test:attributedContent />', ['suffix' => '!'], '!'];
         yield 'recursive helper invocation' => ['<test:attributedContent uppercase="true">outer<test:attributedContent value="inner" />end</test:attributedContent>', [], 'OUTERINNEREND'];
+        yield 'interface-only PHP defaults' => ['<test:interfaceAttributed />', ['suffix' => '!'], '!'];
+        yield 'interface-only processing and context' => ['<test:interfaceAttributed repeat="2" uppercase="true" value="hello" />', ['suffix' => '!'], 'HELLOHELLO!'];
+        yield 'interface-only boolean expression' => ['<test:interfaceAttributed uppercase="{number} > 1" value="hello" />', ['number' => 2], 'HELLO'];
+        yield 'interface-only children' => ['<test:interfaceAttributed>hello</test:interfaceAttributed>', [], 'hello'];
+        yield 'interface-only content argument' => ['<test:interfaceAttributed value="argument">children</test:interfaceAttributed>', [], 'argument'];
+        yield 'interface-only escaping' => ['<test:interfaceAttributed value="{value}" />', ['value' => '<b>hello</b>'], '&lt;b&gt;hello&lt;/b&gt;'];
+        yield 'interface-only inline syntax' => ['{test:interfaceAttributed(value: \'hello\', repeat: 2)}', [], 'hellohello'];
+        yield 'nested interface-only calls' => ['<test:interfaceAttributed uppercase="true">outer<test:interfaceAttributed value="inner" />end</test:interfaceAttributed>', [], 'OUTERINNEREND'];
     }
 
     #[Test]
@@ -69,6 +77,27 @@ final class AttributedArgumentsTest extends AbstractFunctionalTestCase
     {
         self::expectException(UndeclaredArgumentException::class);
         $this->createView('<test:attributedContent context="invalid" />')->render();
+    }
+
+    #[Test]
+    public function interfaceOnlyArgumentsAreValidatedInUncachedAndCachedTemplates(): void
+    {
+        $source = '<test:interfaceAttributed repeat="{invalid}" />';
+        for ($run = 0; $run < 2; $run++) {
+            try {
+                $this->createView($source, ['invalid' => []])->render();
+                self::fail('An invalid argument type must be rejected.');
+            } catch (InvalidArgumentValueException $exception) {
+                self::assertSame(1256475113, $exception->getCode());
+            }
+        }
+    }
+
+    #[Test]
+    public function interfaceOnlyAdditionalArgumentsAreRejected(): void
+    {
+        self::expectException(UndeclaredArgumentException::class);
+        $this->createView('<test:interfaceAttributed unexpected="invalid" />')->render();
     }
 
     private function createView(string $source, array $variables = []): TemplateView

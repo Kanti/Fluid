@@ -130,12 +130,15 @@ such as :php:`?string $value`. A parameter with a default value is optional:
 for example, :php:`int $step = 1` or :php:`?string $value = null`.
 The attribute only supplies :php:`description` and :php:`escape`, with the same
 meaning as the corresponding :php:`registerArgument()` parameters.
+The description must be supplied explicitly; an empty string is valid, for
+example :php:`#[Argument('')]`.
 
 When attributes declare arguments, :php:`initializeArguments()` is not called.
 Use one declaration style per ViewHelper. Existing ViewHelpers using
-:php:`initializeArguments()` continue to work. :php:`initialize()` is still
-called before rendering, and argument processing, validation, escaping and
-compiled templates use the same pipeline as other ViewHelpers. Pass-by-reference,
+:php:`initializeArguments()` continue to work. For subclasses of
+:php:`AbstractViewHelper`, :php:`initialize()` is still called before rendering.
+Argument processing, validation, escaping and compiled templates use the same
+pipeline as other ViewHelpers. Pass-by-reference,
 variadic and intersection-type arguments are not supported.
 
 A parameter typed as
@@ -150,6 +153,28 @@ without calling the ViewHelper's constructor, :php:`prepareArguments()`,
 :php:`initializeArguments()` or :php:`render()`. Tooling can also obtain these
 definitions through
 :php:`TYPO3Fluid\Fluid\Core\ViewHelper\RenderMethod::fromClass($className)->getArgumentDefinitions()`.
+
+Implementing ViewHelperInterface directly
+----------------------------------------
+
+Argument attributes also work with ViewHelpers that implement
+:php:`TYPO3Fluid\Fluid\Core\ViewHelper\ViewHelperInterface` directly.
+The resolver discovers the argument definitions, and the invoker passes the
+processed arguments to the public :php:`render()` method. Rendering context
+injection works in the same way as for subclasses of :php:`AbstractViewHelper`.
+
+These classes still implement all methods of :php:`ViewHelperInterface`,
+including the setters, additional argument validation and :php:`convert()`
+for compilation. When attributed parameters are present, Fluid obtains the
+definitions without calling :php:`prepareArguments()`. After setting arguments
+and the rendering context and dispatching the argument validation event, it
+calls :php:`render()` directly instead of :php:`initializeArgumentsAndRender()`.
+Use the setters for any setup required before rendering.
+
+Legacy interface-only implementations without render method arguments continue
+to use :php:`prepareArguments()` and :php:`initializeArgumentsAndRender()`.
+Subclasses of :php:`AbstractViewHelper` retain their existing rendering lifecycle,
+including custom overrides of :php:`initializeArgumentsAndRender()`.
 
 .. _invoking-viewhelpers:
 

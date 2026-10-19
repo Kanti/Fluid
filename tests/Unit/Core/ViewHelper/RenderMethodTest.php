@@ -24,34 +24,41 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\RenderMethod;
 final class RenderMethodTest extends TestCase
 {
     #[Test]
+    public function attributeDescriptionCannotBeOmitted(): void
+    {
+        self::expectException(\ArgumentCountError::class);
+        (new \ReflectionClass(Argument::class))->newInstance();
+    }
+
+    #[Test]
     public function derivesDefinitionsFromParameters(): void
     {
         $viewHelper = new class () extends AbstractViewHelper {
             public function render(
                 #[Argument('Required argument')]
                 int $required,
-                #[Argument]
+                #[Argument('')]
                 ?string $nullableRequired,
-                #[Argument]
+                #[Argument('')]
                 $untyped,
-                #[Argument]
+                #[Argument('')]
                 int|string $union,
-                #[Argument]
+                #[Argument('')]
                 self $object,
                 RenderingContextInterface $context,
-                #[Argument(escape: false)]
+                #[Argument('', escape: false)]
                 int $number = 2,
-                #[Argument]
+                #[Argument('')]
                 string $phpDefault = 'default',
-                #[Argument]
+                #[Argument('')]
                 ?string $explicitNull = null,
-                #[Argument]
+                #[Argument('')]
                 bool $enabled = false,
-                #[Argument]
+                #[Argument('')]
                 array $items = [],
-                #[Argument]
+                #[Argument('')]
                 string $emptyString = '',
-                #[Argument]
+                #[Argument('')]
                 int $zero = 0,
             ): void {}
         };
@@ -84,7 +91,7 @@ final class RenderMethodTest extends TestCase
 
             public function render(
                 RenderingContextInterface $context,
-                #[Argument]
+                #[Argument('')]
                 string $value,
                 string $internalDefault = 'internal',
             ): array {
@@ -106,7 +113,7 @@ final class RenderMethodTest extends TestCase
                 throw new \LogicException('Legacy argument registration must not run.');
             }
 
-            public function render(#[Argument] int $value = 2): int
+            public function render(#[Argument('')] int $value = 2): int
             {
                 return $value;
             }
@@ -122,15 +129,15 @@ final class RenderMethodTest extends TestCase
     {
         $viewHelper = new class () extends AbstractViewHelper {
             public function render(
-                #[Argument]
+                #[Argument('')]
                 int $zero = 0,
-                #[Argument]
+                #[Argument('')]
                 bool $enabled = false,
-                #[Argument]
+                #[Argument('')]
                 string $emptyString = '',
-                #[Argument]
+                #[Argument('')]
                 array $items = [],
-                #[Argument]
+                #[Argument('')]
                 ?string $nullable = null,
             ): array {
                 return [$zero, $enabled, $emptyString, $items, $nullable];
@@ -166,7 +173,7 @@ final class RenderMethodTest extends TestCase
     public function literalAndUnionTypesUseTheArgumentProcessor(): void
     {
         $viewHelper = new class () extends AbstractViewHelper {
-            public function render(#[Argument] string|false $value, #[Argument] true $enabled): array
+            public function render(#[Argument('')] string|false $value, #[Argument('')] true $enabled): array
             {
                 return [$value, $enabled];
             }
@@ -194,13 +201,13 @@ final class RenderMethodTest extends TestCase
             public function render(string $value): void {}
         }, 1792320004];
         yield 'reference' => [new class () extends AbstractViewHelper {
-            public function render(#[Argument] string &$value): void {}
+            public function render(#[Argument('')] string &$value): void {}
         }, 1792320005];
         yield 'variadic' => [new class () extends AbstractViewHelper {
-            public function render(#[Argument] string ...$values): void {}
+            public function render(#[Argument('')] string ...$values): void {}
         }, 1792320005];
         yield 'intersection' => [new class () extends AbstractViewHelper {
-            public function render(#[Argument] \Countable&\Traversable $value): void {}
+            public function render(#[Argument('')] \Countable&\Traversable $value): void {}
         }, 1792320008];
     }
 

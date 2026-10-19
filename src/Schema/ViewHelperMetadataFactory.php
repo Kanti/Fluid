@@ -12,7 +12,6 @@ namespace TYPO3Fluid\Fluid\Schema;
 use TYPO3Fluid\Fluid\Core\Component\ComponentDefinition;
 use TYPO3Fluid\Fluid\Core\Parser\Patterns;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
 use TYPO3Fluid\Fluid\Core\ViewHelper\RenderMethod;
 use TYPO3Fluid\Fluid\Core\ViewHelper\ViewHelperInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\ViewHelperResolverDelegateInterface;
@@ -92,9 +91,7 @@ final class ViewHelperMetadataFactory
         }
 
         [$namespace, $name] = $this->splitClassName($className);
-        $attributeArguments = is_subclass_of($className, AbstractViewHelper::class)
-            ? RenderMethod::fromClass($className)->getArgumentDefinitions()
-            : [];
+        $attributeArguments = RenderMethod::tryFromClass($className)?->getArgumentDefinitions();
 
         return new ViewHelperMetadata(
             className: $className,

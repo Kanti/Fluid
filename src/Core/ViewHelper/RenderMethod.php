@@ -22,6 +22,11 @@ final class RenderMethod
     /** @var array<class-string, self> */
     private static array $cache = [];
 
+    /** @var array<class-string, bool> */
+    private static array $usesMethodArguments = [];
+
+    private \ReflectionMethod $method;
+
     /** @var array<string, ArgumentDefinition> */
     private array $argumentDefinitions = [];
 
@@ -33,6 +38,7 @@ final class RenderMethod
             throw new InvalidArgumentDefinitionException('ViewHelper ' . $className . ' must implement a public render() method.', 1792320001);
         }
         $method = new \ReflectionMethod($className, 'render');
+        $this->method = $method;
         if (!$method->isPublic() || $method->isStatic()) {
             throw new InvalidArgumentDefinitionException('ViewHelper ' . $className . ' must implement a public, non-static render() method.', 1792320002);
         }
@@ -73,6 +79,30 @@ final class RenderMethod
         return self::$cache[$className] ??= new self($className);
     }
 
+    /**
+     * Legacy implementations may have no render() method at all.
+     *
+     * @param class-string $className
+     */
+    public static function tryFromClass(string $className): ?self
+    {
+        if (!array_key_exists($className, self::$usesMethodArguments)) {
+            self::$usesMethodArguments[$className] = false;
+            if (method_exists($className, 'render')) {
+                foreach ((new \ReflectionMethod($className, 'render'))->getParameters() as $parameter) {
+                    $type = $parameter->getType();
+                    if ($parameter->getAttributes(Argument::class) !== []
+                        || ($type instanceof \ReflectionNamedType && $type->getName() === RenderingContextInterface::class)
+                    ) {
+                        self::$usesMethodArguments[$className] = true;
+                        break;
+                    }
+                }
+            }
+        }
+        return self::$usesMethodArguments[$className] ? self::fromClass($className) : null;
+    }
+
     /** @return array<string, ArgumentDefinition> */
     public function getArgumentDefinitions(): array
     {
@@ -93,6 +123,12 @@ final class RenderMethod
             $parameters[$this->renderingContextParameter] = $renderingContext;
         }
         return $parameters;
+    }
+
+    /** @param array<string, mixed> $arguments */
+    public function invoke(ViewHelperInterface $viewHelper, array $arguments, RenderingContextInterface $renderingContext): mixed
+    {
+        return $this->method->invokeArgs($viewHelper, $this->getInvocationArguments($arguments, $renderingContext));
     }
 
     private function getTypeName(?\ReflectionType $type, \ReflectionMethod $method): string

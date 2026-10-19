@@ -18,7 +18,7 @@ namespace TYPO3Fluid\Fluid\Core\ViewHelper\Attribute;
 final readonly class Argument
 {
     public function __construct(
-        public string $description = '',
+        public string $description,
         public ?bool $escape = null,
     ) {}
 }

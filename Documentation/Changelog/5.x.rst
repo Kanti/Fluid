@@ -14,7 +14,9 @@ This Changelog lists notable deprecation and breaking changes. The full list of 
 
 * ViewHelper arguments can be declared with the PHP attribute
   :php:`TYPO3Fluid\Fluid\Core\ViewHelper\Attribute\Argument` on :php:`render()`
-  parameters. See :ref:`viewhelper-argument-attributes` for the required and optional
+  parameters, including ViewHelpers that implement :php:`ViewHelperInterface`
+  directly. The attribute requires an explicit description, which may be empty.
+  See :ref:`viewhelper-argument-attributes` for the required and optional
   argument rules and rendering context injection.
 * The abstract :php:`render()` declaration in :php:`AbstractViewHelper` has been
   removed to allow required render parameters. ViewHelpers must still implement

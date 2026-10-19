@@ -400,15 +400,18 @@ class ViewHelperResolver
     /**
      * Return an array of ArgumentDefinition instances which describe
      * the arguments that the ViewHelper supports. By default, the
-     * arguments are simply fetched from the ViewHelper - but custom
-     * implementations can if necessary add/remove/replace arguments
-     * which will be passed to the ViewHelper.
+     * definitions are reflected for attributed interface-only ViewHelpers.
+     * Other implementations prepare their own definitions. Custom resolvers
+     * can add/remove/replace arguments which will be passed to the ViewHelper.
      *
      * @return ArgumentDefinition[]
      */
     public function getArgumentDefinitionsForViewHelper(ViewHelperInterface $viewHelper): array
     {
-        return $viewHelper->prepareArguments();
+        if ($viewHelper instanceof AbstractViewHelper) {
+            return $viewHelper->prepareArguments();
+        }
+        return RenderMethod::tryFromClass($viewHelper::class)?->getArgumentDefinitions() ?: $viewHelper->prepareArguments();
     }
 
     /**
