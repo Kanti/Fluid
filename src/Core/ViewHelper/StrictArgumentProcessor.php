@@ -69,6 +69,15 @@ final readonly class StrictArgumentProcessor implements ArgumentProcessorInterfa
      */
     private function isValidType(string $type, mixed $value, bool $allowStringableAsString = false): bool
     {
+        if ($type === 'null') {
+            return $value === null;
+        }
+        if ($type === 'true') {
+            return $value === true;
+        }
+        if ($type === 'false') {
+            return $value === false;
+        }
         if ($type === 'object') {
             return is_object($value);
         }

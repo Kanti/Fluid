@@ -94,6 +94,63 @@ Non-string-compatible values may cause problems if you use the ViewHelper in
 ways that were not intended. Like in PHP, data types must either match or be
 mutually compatible.
 
+.. _viewhelper-argument-attributes:
+
+Declaring arguments with PHP attributes
+======================================
+
+As an alternative to :php:`initializeArguments()`, arguments can be declared on
+the parameters of :php:`render()` using
+:php:`TYPO3Fluid\Fluid\Core\ViewHelper\Attribute\Argument`:
+
+.. code-block:: php
+
+    use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
+    use TYPO3Fluid\Fluid\Core\ViewHelper\Attribute\Argument;
+
+    class RangeViewHelper extends AbstractViewHelper
+    {
+        public function render(
+            #[Argument(description: 'First value of the sequence.')]
+            int $start,
+            #[Argument(description: 'Last possible value of the sequence.')]
+            int $end,
+            #[Argument(description: 'Step size.', optional: true, defaultValue: 1)]
+            int $step,
+        ): string {
+            return implode(', ', range($start, $end, $step));
+        }
+    }
+
+The parameter name becomes the template argument name, and its PHP type becomes
+the argument type. An untyped parameter uses :php:`mixed`. Arguments are required
+unless :php:`optional: true` is specified, including nullable parameters.
+Optional arguments use :php:`defaultValue` from the attribute, or the PHP
+parameter's default if the attribute omits it. Without either default, an
+optional parameter must accept :php:`null`. Required arguments cannot have a
+default value. The attribute also accepts :php:`escape`, with the same meaning
+as the corresponding :php:`registerArgument()` parameter.
+
+When attributes declare arguments, :php:`initializeArguments()` is not called.
+Use one declaration style per ViewHelper. Existing ViewHelpers using
+:php:`initializeArguments()` continue to work. :php:`initialize()` is still
+called before rendering, and argument processing, validation, escaping and
+compiled templates use the same pipeline as other ViewHelpers. Pass-by-reference,
+variadic and intersection-type arguments are not supported.
+
+A parameter typed as
+:php:`TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface` without an
+:php:`Argument` attribute receives the current rendering context. It is not
+exposed as a template argument. Other required parameters need an
+:php:`Argument` attribute; unannotated optional parameters retain their PHP
+defaults. Services can be injected through the ViewHelper constructor as usual.
+
+For attributed ViewHelpers, Fluid's metadata factory reads the definitions
+without calling the ViewHelper's constructor, :php:`prepareArguments()`,
+:php:`initializeArguments()` or :php:`render()`. Tooling can also obtain these
+definitions through
+:php:`TYPO3Fluid\Fluid\Core\ViewHelper\RenderMethod::fromClass($className)->getArgumentDefinitions()`.
+
 .. _invoking-viewhelpers:
 
 Invoking other ViewHelpers

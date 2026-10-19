@@ -18,6 +18,7 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\ViewHelperResolverDelegateInterface;
 use TYPO3Fluid\Fluid\Schema\ViewHelperMetadataFactory;
 use TYPO3Fluid\Fluid\Tests\Functional\Fixtures\ComponentCollections\BasicComponentCollection;
 use TYPO3Fluid\Fluid\Tests\Unit\Schema\Fixtures\ViewHelpers\AbstractViewHelper;
+use TYPO3Fluid\Fluid\Tests\Unit\Schema\Fixtures\ViewHelpers\AttributedViewHelper;
 use TYPO3Fluid\Fluid\Tests\Unit\Schema\Fixtures\ViewHelpers\Sub\ArbitraryArgumentsViewHelper;
 use TYPO3Fluid\Fluid\Tests\Unit\Schema\Fixtures\ViewHelpers\Sub\DeprecatedViewHelper;
 use TYPO3Fluid\Fluid\Tests\Unit\Schema\Fixtures\ViewHelpers\WithDocumentationViewHelper;
@@ -29,6 +30,16 @@ use TYPO3Fluid\Fluid\Tests\Unit\Schema\Fixtures\WrongDirectoryViewHelper;
 
 final class ViewHelperMetadataFactoryTest extends TestCase
 {
+    #[Test]
+    public function attributeMetadataDoesNotExecuteViewHelperMethods(): void
+    {
+        $metadata = (new ViewHelperMetadataFactory())->createFromViewhelperClass(AttributedViewHelper::class);
+        self::assertEquals(
+            ['value' => new ArgumentDefinition('value', 'string', 'A test argument', false)],
+            $metadata->argumentDefinitions,
+        );
+    }
+
     public static function createFromViewHelperClassDataProvider(): iterable
     {
         return [

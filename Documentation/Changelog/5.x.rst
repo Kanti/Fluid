@@ -12,6 +12,13 @@ This Changelog lists notable deprecation and breaking changes. The full list of 
 5.0
 ---
 
+* ViewHelper arguments can be declared with the PHP attribute
+  :php:`TYPO3Fluid\Fluid\Core\ViewHelper\Attribute\Argument` on :php:`render()`
+  parameters. See :ref:`viewhelper-argument-attributes` for the required and optional
+  argument rules and rendering context injection.
+* The abstract :php:`render()` declaration in :php:`AbstractViewHelper` has been
+  removed to allow required render parameters. ViewHelpers must still implement
+  a public, non-static :php:`render()` method.
 * Breaking: Property :php:`TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper::$childNodes`
   has been removed.
 * Breaking: Method :php:`TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper::setChildNodes()`
