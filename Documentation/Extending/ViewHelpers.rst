@@ -192,6 +192,105 @@ to use :php:`prepareArguments()` and :php:`initializeArgumentsAndRender()`.
 Subclasses of :php:`AbstractViewHelper` retain their existing rendering lifecycle,
 including custom overrides of :php:`initializeArgumentsAndRender()`.
 
+.. _method-viewhelpers:
+
+ViewHelpers defined by ordinary methods
+======================================
+
+An ordinary PHP class can expose several methods as ViewHelpers without
+extending a base class or implementing an interface. Mark each public instance
+method with :php:`TYPO3Fluid\Fluid\Core\ViewHelper\Attribute\ViewHelper` and
+register the class as a Fluid namespace. Only marked methods are exposed.
+Argument names, types, optionality and defaults follow the same rules described
+in :ref:`viewhelper-argument-attributes`, including the explicit description on
+each :php:`Argument` attribute. Empty descriptions are allowed.
+
+.. code-block:: php
+
+    namespace Vendor\Package;
+
+    use Psr\Http\Message\ServerRequestInterface;
+    use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
+    use TYPO3Fluid\Fluid\Core\ViewHelper\Attribute\Argument;
+    use TYPO3Fluid\Fluid\Core\ViewHelper\Attribute\ViewHelper;
+
+    final class Formatting
+    {
+        #[ViewHelper]
+        public function greet(
+            #[Argument('Name to greet.')]
+            string $name,
+            #[Argument('Greeting to use.')]
+            string $greeting = 'Hello',
+            ?RenderingContextInterface $context = null,
+            ?ServerRequestInterface $request = null,
+        ): string {
+            return $greeting . ' ' . $name;
+        }
+
+        #[ViewHelper(name: 'format.upper')]
+        public function uppercase(#[Argument('')] string $value): string
+        {
+            return strtoupper($value);
+        }
+    }
+
+    $resolver->addNamespace('text', Formatting::class);
+
+The method name is the default ViewHelper name. The optional :php:`name` in
+:php:`ViewHelper` provides an alias, including dotted names:
+
+.. code-block:: html
+
+    <text:greet name="Ada" />
+    <text:format.upper value="hello" />
+    {text:greet(name: 'Ada', greeting: 'Hi')}
+
+Unannotated context and request parameters are injected rather than exposed as
+template arguments. They may be omitted from the method signature entirely.
+When declared, the context parameter always receives the active rendering
+context. A request parameter receives the object attached under
+:php:`ServerRequestInterface::class`:
+
+.. code-block:: php
+
+    $renderingContext->setAttribute(ServerRequestInterface::class, $request);
+
+If no request is attached, a nullable request parameter receives :php:`null`,
+or its PHP default is used. A non-nullable request parameter without a default
+causes a ViewHelper error. The host application supplies the request; Fluid does
+not create one. Install the Composer package ``psr/http-message`` when declaring PSR-7 request
+parameters. Request and context values are resolved for each invocation, including
+when rendering compiled templates.
+
+The :php:`ViewHelper` attribute also accepts :php:`escapeOutput` (default
+:php:`true`), :php:`escapeChildren` (default: the inverse of
+:php:`escapeOutput`) and :php:`contentArgumentName`. The content argument must
+be declared with :php:`Argument`. A :php:`null` content argument falls back to
+the tag's child content. For example:
+
+.. code-block:: php
+
+    #[ViewHelper(contentArgumentName: 'value')]
+    public function repeat(
+        #[Argument('Text to repeat.', escape: false)]
+        ?string $value = null,
+        #[Argument('Number of copies.')]
+        int $count = 2,
+    ): string {
+        return str_repeat($value ?? '', $count);
+    }
+
+This method can be used as :html:`<text:repeat>hello</text:repeat>` or
+:html:`<text:repeat value="hello" />`. The same argument processing, validation
+and escaping apply to interpreted and compiled templates.
+
+Override :php:`ViewHelperResolver::createMethodViewHelperInstance()` to obtain
+ordinary objects from a dependency injection container. Metadata can be read
+without constructing the class using
+:php:`ViewHelperMetadataFactory::createFromViewHelperMethod($class, $method)` or
+:php:`ViewHelperFinder::findViewHelpersInClass($class)`.
+
 .. _invoking-viewhelpers:
 
 Invoking other ViewHelpers

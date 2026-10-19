@@ -12,6 +12,7 @@ namespace TYPO3Fluid\Fluid\Schema;
 use TYPO3Fluid\Fluid\Core\Component\ComponentDefinition;
 use TYPO3Fluid\Fluid\Core\Parser\Patterns;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper;
+use TYPO3Fluid\Fluid\Core\ViewHelper\MethodViewHelperCollection;
 use TYPO3Fluid\Fluid\Core\ViewHelper\RenderMethod;
 use TYPO3Fluid\Fluid\Core\ViewHelper\ViewHelperInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\ViewHelperResolverDelegateInterface;
@@ -52,7 +53,68 @@ final class ViewHelperMetadataFactory
             throw new \InvalidArgumentException('Metadata cannot be fetched from abstract ViewHelpers: ' . $className);
         }
 
-        $docComment = (new \ReflectionClass($className))->getDocComment();
+        [$documentation, $docTags] = $this->parseDocComment((new \ReflectionClass($className))->getDocComment(), $collectMultiplePhpDoc);
+
+        [$namespace, $name] = $this->splitClassName($className);
+        $attributeArguments = RenderMethod::tryFromClass($className)?->getArgumentDefinitions();
+
+        return new ViewHelperMetadata(
+            className: $className,
+            namespace: $namespace,
+            name: $name,
+            tagName: $this->generateTagName($name),
+            documentation: $documentation,
+            xmlNamespace: $this->generateXmlNamespace($namespace),
+            docTags: $docTags,
+            argumentDefinitions: $attributeArguments ?: (new \ReflectionClass($className))->newInstanceWithoutConstructor()->prepareArguments(),
+            allowsArbitraryArguments: is_subclass_of($className, AbstractTagBasedViewHelper::class),
+        );
+    }
+
+    public function createFromComponentDefinition(
+        ViewHelperResolverDelegateInterface $componentCollection,
+        ComponentDefinition $componentDefinition,
+    ): ViewHelperMetadata {
+        return new ViewHelperMetadata(
+            className: null,
+            namespace: $componentCollection->getNamespace(),
+            name: null,
+            tagName: $componentDefinition->getName(),
+            documentation: ($componentDefinition->getAvailableSlots() !== [])
+                ? 'Available slots: ' . implode(', ', $componentDefinition->getAvailableSlots())
+                : '',
+            xmlNamespace: $this->generateXmlNamespace($componentCollection->getNamespace()),
+            docTags: [],
+            argumentDefinitions: $componentDefinition->getArgumentDefinitions(),
+            allowsArbitraryArguments: $componentDefinition->additionalArgumentsAllowed(),
+        );
+    }
+
+    /** @param class-string $className */
+    public function createFromViewHelperMethod(string $className, string $methodName, bool $collectMultiplePhpDoc = false): ViewHelperMetadata
+    {
+        $collection = new MethodViewHelperCollection($className);
+        $name = array_search($methodName, $collection->getMethods(), true);
+        if ($name === false) {
+            throw new \InvalidArgumentException('The method is not marked as a ViewHelper: ' . $className . '::' . $methodName);
+        }
+        [$documentation, $docTags] = $this->parseDocComment((new \ReflectionMethod($className, $methodName))->getDocComment(), $collectMultiplePhpDoc);
+        return new ViewHelperMetadata(
+            className: $className,
+            namespace: $className,
+            name: $methodName,
+            tagName: $name,
+            documentation: $documentation,
+            xmlNamespace: $this->generateXmlNamespace($className),
+            docTags: $docTags,
+            argumentDefinitions: RenderMethod::fromClass($className, $methodName)->getArgumentDefinitions(),
+            allowsArbitraryArguments: false,
+        );
+    }
+
+    /** @return array{string, array<string, string|array>} */
+    private function parseDocComment(string|false $docComment, bool $collectMultiplePhpDoc): array
+    {
         if ($docComment === false) {
             $documentation = '';
             $docTags = [];
@@ -89,40 +151,7 @@ final class ViewHelperMetadataFactory
                 $docTags = array_map(trim(...), $docTags);
             }
         }
-
-        [$namespace, $name] = $this->splitClassName($className);
-        $attributeArguments = RenderMethod::tryFromClass($className)?->getArgumentDefinitions();
-
-        return new ViewHelperMetadata(
-            className: $className,
-            namespace: $namespace,
-            name: $name,
-            tagName: $this->generateTagName($name),
-            documentation: $documentation,
-            xmlNamespace: $this->generateXmlNamespace($namespace),
-            docTags: $docTags,
-            argumentDefinitions: $attributeArguments ?: (new \ReflectionClass($className))->newInstanceWithoutConstructor()->prepareArguments(),
-            allowsArbitraryArguments: is_subclass_of($className, AbstractTagBasedViewHelper::class),
-        );
-    }
-
-    public function createFromComponentDefinition(
-        ViewHelperResolverDelegateInterface $componentCollection,
-        ComponentDefinition $componentDefinition,
-    ): ViewHelperMetadata {
-        return new ViewHelperMetadata(
-            className: null,
-            namespace: $componentCollection->getNamespace(),
-            name: null,
-            tagName: $componentDefinition->getName(),
-            documentation: ($componentDefinition->getAvailableSlots() !== [])
-                ? 'Available slots: ' . implode(', ', $componentDefinition->getAvailableSlots())
-                : '',
-            xmlNamespace: $this->generateXmlNamespace($componentCollection->getNamespace()),
-            docTags: [],
-            argumentDefinitions: $componentDefinition->getArgumentDefinitions(),
-            allowsArbitraryArguments: $componentDefinition->additionalArgumentsAllowed(),
-        );
+        return [$documentation, $docTags];
     }
 
     private function extractTextFromDocComment(string $docComment): string

@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace TYPO3Fluid\Fluid\Core\ViewHelper;
 
+use Psr\Http\Message\ServerRequestInterface;
 use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\Attribute\Argument;
 
@@ -19,7 +20,7 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\Attribute\Argument;
  */
 final class RenderMethod
 {
-    /** @var array<class-string, self> */
+    /** @var array<string, self> */
     private static array $cache = [];
 
     /** @var array<class-string, bool> */
@@ -32,15 +33,17 @@ final class RenderMethod
 
     private ?string $renderingContextParameter = null;
 
-    private function __construct(string $className)
+    private ?\ReflectionParameter $requestParameter = null;
+
+    private function __construct(string $className, string $methodName)
     {
-        if (!method_exists($className, 'render')) {
-            throw new InvalidArgumentDefinitionException('ViewHelper ' . $className . ' must implement a public render() method.', 1792320001);
+        if (!method_exists($className, $methodName)) {
+            throw new InvalidArgumentDefinitionException('ViewHelper ' . $className . ' must implement a public ' . $methodName . '() method.', 1792320001);
         }
-        $method = new \ReflectionMethod($className, 'render');
+        $method = new \ReflectionMethod($className, $methodName);
         $this->method = $method;
         if (!$method->isPublic() || $method->isStatic()) {
-            throw new InvalidArgumentDefinitionException('ViewHelper ' . $className . ' must implement a public, non-static render() method.', 1792320002);
+            throw new InvalidArgumentDefinitionException('ViewHelper ' . $className . ' must implement a public, non-static ' . $methodName . '() method.', 1792320002);
         }
         foreach ($method->getParameters() as $parameter) {
             $attributes = $parameter->getAttributes(Argument::class);
@@ -50,6 +53,13 @@ final class RenderMethod
                     throw new InvalidArgumentDefinitionException('Only one rendering context parameter, passed by value, is supported in ' . $className . '::render().', 1792320003);
                 }
                 $this->renderingContextParameter = $parameter->getName();
+                continue;
+            }
+            if ($attributes === [] && $type instanceof \ReflectionNamedType && $type->getName() === ServerRequestInterface::class) {
+                if ($parameter->isPassedByReference() || $parameter->isVariadic() || $this->requestParameter !== null) {
+                    throw new InvalidArgumentDefinitionException('Only one request parameter, passed by value, is supported.', 1792401007);
+                }
+                $this->requestParameter = $parameter;
                 continue;
             }
             if ($attributes === []) {
@@ -74,9 +84,9 @@ final class RenderMethod
     }
 
     /** @param class-string $className */
-    public static function fromClass(string $className): self
+    public static function fromClass(string $className, string $methodName = 'render'): self
     {
-        return self::$cache[$className] ??= new self($className);
+        return self::$cache[$className . '::' . $methodName] ??= new self($className, $methodName);
     }
 
     /**
@@ -92,7 +102,7 @@ final class RenderMethod
                 foreach ((new \ReflectionMethod($className, 'render'))->getParameters() as $parameter) {
                     $type = $parameter->getType();
                     if ($parameter->getAttributes(Argument::class) !== []
-                        || ($type instanceof \ReflectionNamedType && $type->getName() === RenderingContextInterface::class)
+                        || ($type instanceof \ReflectionNamedType && in_array($type->getName(), [RenderingContextInterface::class, ServerRequestInterface::class], true))
                     ) {
                         self::$usesMethodArguments[$className] = true;
                         break;
@@ -122,11 +132,23 @@ final class RenderMethod
         if ($this->renderingContextParameter !== null) {
             $parameters[$this->renderingContextParameter] = $renderingContext;
         }
+        if ($this->requestParameter !== null) {
+            if ($renderingContext !== null && $renderingContext->hasAttribute(ServerRequestInterface::class)) {
+                $request = $renderingContext->getAttribute(ServerRequestInterface::class);
+            } elseif ($this->requestParameter->isDefaultValueAvailable()) {
+                $request = $this->requestParameter->getDefaultValue();
+            } elseif ($this->requestParameter->allowsNull()) {
+                $request = null;
+            } else {
+                throw new InvalidArgumentValueException('A ServerRequestInterface must be attached to the rendering context.', 1792401008);
+            }
+            $parameters[$this->requestParameter->getName()] = $request;
+        }
         return $parameters;
     }
 
     /** @param array<string, mixed> $arguments */
-    public function invoke(ViewHelperInterface $viewHelper, array $arguments, RenderingContextInterface $renderingContext): mixed
+    public function invoke(object $viewHelper, array $arguments, RenderingContextInterface $renderingContext): mixed
     {
         return $this->method->invokeArgs($viewHelper, $this->getInvocationArguments($arguments, $renderingContext));
     }

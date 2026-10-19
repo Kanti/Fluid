@@ -394,7 +394,22 @@ class ViewHelperResolver
         if (is_a($delegateClassName, ViewHelperResolverDelegateInterface::class, true)) {
             return new $delegateClassName();
         }
+        if (class_exists($delegateClassName)) {
+            return new MethodViewHelperCollection($delegateClassName);
+        }
         return new ViewHelperCollection($delegateClassName);
+    }
+
+    /**
+     * Override to obtain ordinary ViewHelper objects from a dependency container.
+     *
+     * @template T of object
+     * @param class-string<T> $className
+     * @return T
+     */
+    public function createMethodViewHelperInstance(string $className): object
+    {
+        return new $className();
     }
 
     /**
