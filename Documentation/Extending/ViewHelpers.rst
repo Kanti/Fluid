@@ -133,9 +133,20 @@ meaning as the corresponding :php:`registerArgument()` parameters.
 The description must be supplied explicitly; an empty string is valid, for
 example :php:`#[Argument('')]`.
 
-When attributes declare arguments, :php:`initializeArguments()` is not called.
-Use one declaration style per ViewHelper. Existing ViewHelpers using
-:php:`initializeArguments()` continue to work. For subclasses of
+.. important::
+
+    Choose one argument declaration style per ViewHelper. As soon as a
+    :php:`render()` parameter has an :php:`Argument` attribute, the attributed
+    parameters provide the complete argument definitions. Fluid does not call
+    :php:`initializeArguments()`, including inherited implementations, and does
+    not merge arguments registered there with the attributed definitions.
+
+    Different ViewHelpers in the same project may use different declaration
+    styles. The restriction applies to each individual ViewHelper, not to the
+    project as a whole.
+
+Existing ViewHelpers using :php:`initializeArguments()` continue to work.
+For subclasses of
 :php:`AbstractViewHelper`, :php:`initialize()` is still called before rendering.
 Argument processing, validation, escaping and compiled templates use the same
 pipeline as other ViewHelpers. Pass-by-reference,
