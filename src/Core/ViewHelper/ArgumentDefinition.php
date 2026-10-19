@@ -84,7 +84,7 @@ class ArgumentDefinition
 
     public function isBooleanType(): bool
     {
-        return $this->getType() === 'bool' || $this->getType() === 'boolean';
+        return in_array($this->getType(), ['bool', 'boolean', 'true', 'false'], true);
     }
 
     /**

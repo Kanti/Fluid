@@ -38,6 +38,18 @@ final class StrictArgumentProcessorTest extends TestCase
         };
         $intval = intval(...);
 
+        foreach (['true' => true, 'false' => false, 'null' => null] as $type => $expectedValue) {
+            foreach ([true, false, null, 0, ''] as $value) {
+                yield [
+                    'type' => $type,
+                    'value' => $value,
+                    'expectedValidity' => $value === $expectedValue,
+                    'expectedProcessedValue' => $value,
+                    'expectedProcessedValidity' => $value === $expectedValue,
+                ];
+            }
+        }
+
         //
         // Boolean types
         //

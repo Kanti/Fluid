@@ -12,6 +12,7 @@ namespace TYPO3Fluid\Fluid\Schema;
 use TYPO3Fluid\Fluid\Core\Component\ComponentDefinition;
 use TYPO3Fluid\Fluid\Core\Parser\Patterns;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper;
+use TYPO3Fluid\Fluid\Core\ViewHelper\RenderMethod;
 use TYPO3Fluid\Fluid\Core\ViewHelper\ViewHelperInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\ViewHelperResolverDelegateInterface;
 
@@ -90,6 +91,7 @@ final class ViewHelperMetadataFactory
         }
 
         [$namespace, $name] = $this->splitClassName($className);
+        $attributeArguments = RenderMethod::tryFromClass($className)?->getArgumentDefinitions();
 
         return new ViewHelperMetadata(
             className: $className,
@@ -99,7 +101,7 @@ final class ViewHelperMetadataFactory
             documentation: $documentation,
             xmlNamespace: $this->generateXmlNamespace($namespace),
             docTags: $docTags,
-            argumentDefinitions: (new \ReflectionClass($className))->newInstanceWithoutConstructor()->prepareArguments(),
+            argumentDefinitions: $attributeArguments ?: (new \ReflectionClass($className))->newInstanceWithoutConstructor()->prepareArguments(),
             allowsArbitraryArguments: is_subclass_of($className, AbstractTagBasedViewHelper::class),
         );
     }

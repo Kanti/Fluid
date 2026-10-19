@@ -93,6 +93,9 @@ class ViewHelperInvoker
                     $viewHelper,
                 );
             }
+            if (!$viewHelper instanceof AbstractViewHelper && ($renderMethod = RenderMethod::tryFromClass($viewHelper::class)) !== null) {
+                return $renderMethod->invoke($viewHelper, $registeredArguments, $renderingContext);
+            }
             return $viewHelper->initializeArgumentsAndRender();
         } catch (Exception $error) {
             if (method_exists($renderingContext, 'getOriginalTemplatePath')) {

@@ -16,6 +16,7 @@ use TYPO3Fluid\Fluid\Core\Variables\VariableProviderInterface;
 /**
  * The abstract base class for all view helpers.
  *
+ * @method mixed render(mixed ...$arguments)
  * @api
  */
 abstract class AbstractViewHelper implements ViewHelperInterface
@@ -193,7 +194,7 @@ abstract class AbstractViewHelper implements ViewHelperInterface
     public function initializeArgumentsAndRender(): mixed
     {
         $this->initialize();
-        return $this->render();
+        return $this->render(...RenderMethod::fromClass(static::class)->getInvocationArguments($this->arguments, $this->renderingContext));
     }
 
     /**
@@ -254,7 +255,12 @@ abstract class AbstractViewHelper implements ViewHelperInterface
         if (isset(self::$argumentDefinitionCache[$thisClassName])) {
             $this->argumentDefinitions = self::$argumentDefinitionCache[$thisClassName];
         } else {
-            $this->initializeArguments();
+            $attributeArguments = RenderMethod::fromClass(static::class)->getArgumentDefinitions();
+            if ($attributeArguments !== []) {
+                $this->argumentDefinitions = $attributeArguments;
+            } else {
+                $this->initializeArguments();
+            }
             self::$argumentDefinitionCache[$thisClassName] = $this->argumentDefinitions;
         }
         return $this->argumentDefinitions;
@@ -322,14 +328,6 @@ abstract class AbstractViewHelper implements ViewHelperInterface
             );
         }
     }
-
-    /**
-     * Main render method of the ViewHelper. Every modern ViewHelper implementation
-     * must implement this method.
-     *
-     * @return mixed
-     */
-    abstract public function render();
 
     /**
      * You only should override this method *when you absolutely know what you

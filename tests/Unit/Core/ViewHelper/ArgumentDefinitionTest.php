@@ -40,6 +40,8 @@ final class ArgumentDefinitionTest extends TestCase
         return [
             [new ArgumentDefinition('test', 'bool', '', false), true],
             [new ArgumentDefinition('test', 'boolean', '', false), true],
+            [new ArgumentDefinition('test', 'true', '', false), true],
+            [new ArgumentDefinition('test', 'false', '', false), true],
             [new ArgumentDefinition('test', 'bool[]', '', false), false],
             [new ArgumentDefinition('test', 'string', '', false), false],
         ];

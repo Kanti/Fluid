@@ -14,15 +14,13 @@ use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 /**
  * An interface all view helpers must implement.
  *
- * @internal You may type hint this interface, but you should always
- *           extend AbstractViewHelper or some other abstract that
- *           extends AbstractViewHelper with own view helper
- *           implementations.
- *           This interface currently only ships internal Fluid API,
- *           which may change. Those methods are "correctly" implemented
- *           in the AbstractViewHelper and maintained.
- *           We'll try to resolve this restriction midterm, but you should
- *           not fully implement ViewHelperInterface yourself for now.
+ * Implementations may extend AbstractViewHelper or implement this interface
+ * directly. Attributed render() parameters are discovered by the resolver.
+ * Interface-only implementations with method arguments are invoked directly
+ * through render() after the argument and rendering context setters are called.
+ *
+ * @internal The lifecycle and compilation methods are internal Fluid API and
+ *           may change. AbstractViewHelper provides their default implementations.
  */
 interface ViewHelperInterface
 {
@@ -47,6 +45,9 @@ interface ViewHelperInterface
 
     /**
      * Initialize the arguments of the ViewHelper, and call the render() method of the ViewHelper.
+     *
+     * Interface-only implementations with attributed render() parameters are
+     * invoked directly through render() instead of this legacy entry point.
      *
      * @return mixed the rendered ViewHelper.
      */
