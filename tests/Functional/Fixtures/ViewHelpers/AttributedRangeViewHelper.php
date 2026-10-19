@@ -19,8 +19,8 @@ class AttributedRangeViewHelper extends AbstractViewHelper
         int $start,
         #[Argument(description: 'Last possible value of the sequence.')]
         int $end,
-        #[Argument(description: 'Step size.', optional: true, defaultValue: 1)]
-        int $step,
+        #[Argument(description: 'Step size.')]
+        int $step = 1,
     ): string {
         return implode(',', range($start, $end, $step));
     }

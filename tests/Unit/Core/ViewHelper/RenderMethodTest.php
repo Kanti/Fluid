@@ -31,29 +31,44 @@ final class RenderMethodTest extends TestCase
                 #[Argument('Required argument')]
                 int $required,
                 #[Argument]
+                ?string $nullableRequired,
+                #[Argument]
                 $untyped,
                 #[Argument]
                 int|string $union,
                 #[Argument]
                 self $object,
                 RenderingContextInterface $context,
-                #[Argument(optional: true, defaultValue: 2, escape: false)]
-                int $attributeDefault,
-                #[Argument(optional: true)]
+                #[Argument(escape: false)]
+                int $number = 2,
+                #[Argument]
                 string $phpDefault = 'default',
-                #[Argument(optional: true, defaultValue: null)]
-                ?string $explicitNull = 'ignored',
+                #[Argument]
+                ?string $explicitNull = null,
+                #[Argument]
+                bool $enabled = false,
+                #[Argument]
+                array $items = [],
+                #[Argument]
+                string $emptyString = '',
+                #[Argument]
+                int $zero = 0,
             ): void {}
         };
         $method = RenderMethod::fromClass($viewHelper::class);
         self::assertEquals([
             'required' => new ArgumentDefinition('required', 'int', 'Required argument', true),
+            'nullableRequired' => new ArgumentDefinition('nullableRequired', 'string', '', true),
             'untyped' => new ArgumentDefinition('untyped', 'mixed', '', true),
             'union' => new ArgumentDefinition('union', 'string|int', '', true),
             'object' => new ArgumentDefinition('object', $viewHelper::class, '', true),
-            'attributeDefault' => new ArgumentDefinition('attributeDefault', 'int', '', false, 2, false),
+            'number' => new ArgumentDefinition('number', 'int', '', false, 2, false),
             'phpDefault' => new ArgumentDefinition('phpDefault', 'string', '', false, 'default'),
             'explicitNull' => new ArgumentDefinition('explicitNull', 'string', '', false),
+            'enabled' => new ArgumentDefinition('enabled', 'bool', '', false, false),
+            'items' => new ArgumentDefinition('items', 'array', '', false, []),
+            'emptyString' => new ArgumentDefinition('emptyString', 'string', '', false, ''),
+            'zero' => new ArgumentDefinition('zero', 'int', '', false, 0),
         ], $method->getArgumentDefinitions());
         self::assertSame($method, RenderMethod::fromClass($viewHelper::class));
     }
@@ -91,7 +106,7 @@ final class RenderMethodTest extends TestCase
                 throw new \LogicException('Legacy argument registration must not run.');
             }
 
-            public function render(#[Argument(optional: true, defaultValue: 2)] int $value): int
+            public function render(#[Argument] int $value = 2): int
             {
                 return $value;
             }
@@ -100,6 +115,37 @@ final class RenderMethodTest extends TestCase
         self::assertSame(2, $context->getViewHelperInvoker()->invoke($viewHelper, [], $context));
         self::assertSame(3, $context->getViewHelperInvoker()->invoke($viewHelper, ['value' => '3'], $context));
         self::assertSame(2, $context->getViewHelperInvoker()->invoke($viewHelper, [], $context));
+    }
+
+    #[Test]
+    public function preservesFalsyAndNullDefaultsDuringInvocation(): void
+    {
+        $viewHelper = new class () extends AbstractViewHelper {
+            public function render(
+                #[Argument]
+                int $zero = 0,
+                #[Argument]
+                bool $enabled = false,
+                #[Argument]
+                string $emptyString = '',
+                #[Argument]
+                array $items = [],
+                #[Argument]
+                ?string $nullable = null,
+            ): array {
+                return [$zero, $enabled, $emptyString, $items, $nullable];
+            }
+        };
+        $context = new RenderingContext();
+        self::assertSame([0, false, '', [], null], $context->getViewHelperInvoker()->invoke($viewHelper, [], $context));
+        self::assertSame([1, true, 'value', ['item'], 'present'], $context->getViewHelperInvoker()->invoke($viewHelper, [
+            'zero' => 1,
+            'enabled' => true,
+            'emptyString' => 'value',
+            'items' => ['item'],
+            'nullable' => 'present',
+        ], $context));
+        self::assertSame([0, false, '', [], null], $context->getViewHelperInvoker()->invoke($viewHelper, [], $context));
     }
 
     #[Test]
@@ -153,15 +199,6 @@ final class RenderMethodTest extends TestCase
         yield 'variadic' => [new class () extends AbstractViewHelper {
             public function render(#[Argument] string ...$values): void {}
         }, 1792320005];
-        yield 'required attribute default' => [new class () extends AbstractViewHelper {
-            public function render(#[Argument(defaultValue: 'default')] string $value): void {}
-        }, 1792320006];
-        yield 'required PHP default' => [new class () extends AbstractViewHelper {
-            public function render(#[Argument] ?string $value = null): void {}
-        }, 1792320006];
-        yield 'optional non-nullable without default' => [new class () extends AbstractViewHelper {
-            public function render(#[Argument(optional: true)] int $value): void {}
-        }, 1792320007];
         yield 'intersection' => [new class () extends AbstractViewHelper {
             public function render(#[Argument] \Countable&\Traversable $value): void {}
         }, 1792320008];

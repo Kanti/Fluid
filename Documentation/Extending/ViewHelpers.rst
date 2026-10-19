@@ -115,21 +115,21 @@ the parameters of :php:`render()` using
             int $start,
             #[Argument(description: 'Last possible value of the sequence.')]
             int $end,
-            #[Argument(description: 'Step size.', optional: true, defaultValue: 1)]
-            int $step,
+            #[Argument(description: 'Step size.')]
+            int $step = 1,
         ): string {
             return implode(', ', range($start, $end, $step));
         }
     }
 
 The parameter name becomes the template argument name, and its PHP type becomes
-the argument type. An untyped parameter uses :php:`mixed`. Arguments are required
-unless :php:`optional: true` is specified, including nullable parameters.
-Optional arguments use :php:`defaultValue` from the attribute, or the PHP
-parameter's default if the attribute omits it. Without either default, an
-optional parameter must accept :php:`null`. Required arguments cannot have a
-default value. The attribute also accepts :php:`escape`, with the same meaning
-as the corresponding :php:`registerArgument()` parameter.
+the argument type. An untyped parameter uses :php:`mixed`. Whether an argument
+is required and its default value come from the PHP parameter declaration.
+A parameter without a default value is required, including nullable parameters
+such as :php:`?string $value`. A parameter with a default value is optional:
+for example, :php:`int $step = 1` or :php:`?string $value = null`.
+The attribute only supplies :php:`description` and :php:`escape`, with the same
+meaning as the corresponding :php:`registerArgument()` parameters.
 
 When attributes declare arguments, :php:`initializeArguments()` is not called.
 Use one declaration style per ViewHelper. Existing ViewHelpers using

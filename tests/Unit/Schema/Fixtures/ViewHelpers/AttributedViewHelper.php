@@ -29,7 +29,7 @@ final class AttributedViewHelper extends AbstractViewHelper
         throw new \LogicException('Argument initialization must not run during metadata extraction.');
     }
 
-    public function render(#[Argument('A test argument', optional: true)] ?string $value): string
+    public function render(#[Argument('A test argument')] ?string $value = null): string
     {
         throw new \LogicException('The render method must not run during metadata extraction.');
     }

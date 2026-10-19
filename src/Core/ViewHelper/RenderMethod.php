@@ -55,23 +55,13 @@ final class RenderMethod
             if (count($attributes) !== 1 || $parameter->isPassedByReference() || $parameter->isVariadic()) {
                 throw new InvalidArgumentDefinitionException('Argument "' . $parameter->getName() . '" in ' . $className . ' must be passed by value, cannot be variadic and must have exactly one #[Argument] attribute.', 1792320005);
             }
-            $attributeArguments = $attributes[0]->getArguments();
-            $argument = new Argument(...$attributeArguments);
-            $defaultValue = array_key_exists('defaultValue', $attributeArguments) || array_key_exists(2, $attributeArguments)
-                ? $argument->defaultValue
-                : ($parameter->isDefaultValueAvailable() ? $parameter->getDefaultValue() : null);
-            if (!$argument->optional && ($defaultValue !== null || $parameter->isDefaultValueAvailable())) {
-                throw new InvalidArgumentDefinitionException('Argument "' . $parameter->getName() . '" in ' . $className . ' must be optional to have a default value.', 1792320006);
-            }
-            if ($argument->optional && $defaultValue === null && $type !== null && !$type->allowsNull()) {
-                throw new InvalidArgumentDefinitionException('Optional argument "' . $parameter->getName() . '" in ' . $className . ' needs a default value or a nullable type.', 1792320007);
-            }
+            $argument = new Argument(...$attributes[0]->getArguments());
             $this->argumentDefinitions[$parameter->getName()] = new ArgumentDefinition(
                 $parameter->getName(),
                 $this->getTypeName($type, $method),
                 $argument->description,
-                !$argument->optional,
-                $defaultValue,
+                !$parameter->isOptional(),
+                $parameter->isDefaultValueAvailable() ? $parameter->getDefaultValue() : null,
                 $argument->escape,
             );
         }

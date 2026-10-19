@@ -22,9 +22,9 @@ final class AttributedContentViewHelper extends AbstractViewHelper
 
     public function render(
         RenderingContextInterface $context,
-        #[Argument(optional: true, escape: false)]
+        #[Argument(escape: false)]
         ?string $value = null,
-        #[Argument(optional: true)]
+        #[Argument]
         bool $uppercase = false,
     ): string {
         $value ??= $this->renderChildren() ?? '';

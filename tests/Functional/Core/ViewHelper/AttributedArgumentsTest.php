@@ -21,7 +21,7 @@ final class AttributedArgumentsTest extends AbstractFunctionalTestCase
 {
     public static function renderingDataProvider(): iterable
     {
-        yield 'attribute default' => ['<test:attributedRange start="1" end="3" />', [], '1,2,3'];
+        yield 'PHP parameter default' => ['<test:attributedRange start="1" end="3" />', [], '1,2,3'];
         yield 'explicit arguments out of order' => ['<test:attributedRange step="2" end="5" start="1" />', [], '1,3,5'];
         yield 'inline syntax' => ['{test:attributedRange(end: 3, start: 1)}', [], '1,2,3'];
         yield 'inherited render method' => ['<test:inheritedAttributedRange start="1" end="3" />', [], '1,2,3'];

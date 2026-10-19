@@ -19,8 +19,6 @@ final readonly class Argument
 {
     public function __construct(
         public string $description = '',
-        public bool $optional = false,
-        public mixed $defaultValue = null,
         public ?bool $escape = null,
     ) {}
 }
