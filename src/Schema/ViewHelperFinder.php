@@ -13,6 +13,7 @@ use Composer\Autoload\ClassLoader;
 use FilesystemIterator;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
+use TYPO3Fluid\Fluid\Core\ViewHelper\MethodViewHelperCollection;
 
 /**
  * @internal
@@ -53,6 +54,21 @@ final class ViewHelperFinder
     public function getLastErrors(): array
     {
         return $this->lastErrors;
+    }
+
+    /**
+     * Discover a registered ordinary class without constructing it.
+     *
+     * @param class-string $className
+     * @return ViewHelperMetadata[]
+     */
+    public function findViewHelpersInClass(string $className, bool $collectMultiplePhpDoc = false): array
+    {
+        $collection = new MethodViewHelperCollection($className);
+        return array_map(
+            fn(string $methodName) => $this->viewHelperMetadataFactory->createFromViewHelperMethod($className, $methodName, $collectMultiplePhpDoc),
+            array_values($collection->getMethods()),
+        );
     }
 
     /**

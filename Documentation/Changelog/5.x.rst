@@ -12,6 +12,10 @@ This Changelog lists notable deprecation and breaking changes. The full list of 
 5.0
 ---
 
+* Ordinary classes can expose multiple methods with
+  :php:`TYPO3Fluid\Fluid\Core\ViewHelper\Attribute\ViewHelper` and be registered
+  as a Fluid namespace. See :ref:`method-viewhelpers` for method aliases, content
+  rendering and optional context/request injection.
 * ViewHelper arguments can be declared with the PHP attribute
   :php:`TYPO3Fluid\Fluid\Core\ViewHelper\Attribute\Argument` on :php:`render()`
   parameters, including ViewHelpers that implement :php:`ViewHelperInterface`

@@ -27,11 +27,13 @@
         "phpstan/phpstan-phpunit": "^2.0.16",
         "phpunit/phpunit": "^11.5.55 || ^12.5.14 || ^13.0.5",
         "psr/container": "^2.0.2",
+        "psr/http-message": "^2.0",
         "t3docs/fluid-documentation-generator": "^4.4.2"
     },
     "suggest": {
         "ext-json": "PHP JSON is needed when using JSONVariableProvider: A relatively rare use case",
-        "ext-simplexml": "SimpleXML is required for the XSD schema generator"
+        "ext-simplexml": "SimpleXML is required for the XSD schema generator",
+        "psr/http-message": "Required to declare PSR-7 request parameters on ViewHelper methods"
     },
     "autoload": {
         "psr-4": {
