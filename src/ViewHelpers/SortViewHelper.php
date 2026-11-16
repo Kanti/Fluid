@@ -68,7 +68,7 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\InvalidArgumentValueException;
  *
  * ::
  *
- *    <f:sort value="{numbers}" descending="true" />
+ *    <f:sort value="{numbers}" descending="{true}" />
  *
  * .. code-block:: php
  *

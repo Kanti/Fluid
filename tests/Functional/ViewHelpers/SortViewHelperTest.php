@@ -113,7 +113,7 @@ final class SortViewHelperTest extends AbstractFunctionalTestCase
             'arguments' => [
                 'value' => [3, 1, 2],
             ],
-            'src' => '<f:sort value="{value}" descending="true" />',
+            'src' => '<f:sort value="{value}" descending="{true}" />',
             'expectation' => [3, 2, 1],
         ];
         yield 'descending inline' => [
@@ -127,7 +127,7 @@ final class SortViewHelperTest extends AbstractFunctionalTestCase
             'arguments' => [
                 'value' => [3, 1, 2],
             ],
-            'src' => '<f:sort value="{value}" descending="false" />',
+            'src' => '<f:sort value="{value}" descending="{false}" />',
             'expectation' => [1, 2, 3],
         ];
         yield 'keys are reset by default' => [
@@ -141,7 +141,7 @@ final class SortViewHelperTest extends AbstractFunctionalTestCase
             'arguments' => [
                 'value' => ['c' => 3, 'a' => 1, 'b' => 2],
             ],
-            'src' => '<f:sort value="{value}" preserveKeys="true" />',
+            'src' => '<f:sort value="{value}" preserveKeys="{true}" />',
             'expectation' => ['a' => 1, 'b' => 2, 'c' => 3],
         ];
         yield 'preserveKeys enabled inline' => [
@@ -169,7 +169,7 @@ final class SortViewHelperTest extends AbstractFunctionalTestCase
             'arguments' => [
                 'value' => [$pen, $book, $cup],
             ],
-            'src' => '<f:sort value="{value}" property="price" descending="true" />',
+            'src' => '<f:sort value="{value}" property="price" descending="{true}" />',
             'expectation' => [$book, $cup, $pen],
         ];
         yield 'equal values keep their order' => [
@@ -183,14 +183,14 @@ final class SortViewHelperTest extends AbstractFunctionalTestCase
             'arguments' => [
                 'value' => [$mug, $pen, $cup],
             ],
-            'src' => '<f:sort value="{value}" property="price" descending="true" />',
+            'src' => '<f:sort value="{value}" property="price" descending="{true}" />',
             'expectation' => [$mug, $cup, $pen],
         ];
         yield 'property with preserveKeys enabled' => [
             'arguments' => [
                 'value' => ['book' => $book, 'pen' => $pen],
             ],
-            'src' => '<f:sort value="{value}" property="price" preserveKeys="true" />',
+            'src' => '<f:sort value="{value}" property="price" preserveKeys="{true}" />',
             'expectation' => ['pen' => $pen, 'book' => $book],
         ];
         yield 'property of objects with getters' => [
@@ -232,7 +232,7 @@ final class SortViewHelperTest extends AbstractFunctionalTestCase
             'arguments' => [
                 'value' => $files,
             ],
-            'src' => '<f:sort value="{value}" descending="true" />',
+            'src' => '<f:sort value="{value}" descending="{true}" />',
             'expectation' => ['img12.png', 'img10.png', 'img2.png', 'img1.png'],
         ];
         yield 'natural order with property' => [
@@ -339,7 +339,7 @@ final class SortViewHelperTest extends AbstractFunctionalTestCase
         ];
         yield 'composed generators' => [
             'valueFactory' => $composed,
-            'src' => '<f:sort value="{value}" descending="true" />',
+            'src' => '<f:sort value="{value}" descending="{true}" />',
             'expectation' => ['e', 'd', 'c', 'b', 'a'],
         ];
         yield 'repeated keys with preserveKeys use the last item per key' => [
